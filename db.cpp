@@ -29,7 +29,7 @@ int main(int argc, char** argv)
   }
 	else
 	{
-    rc = (argv[get_token1], &tok_list);
+    rc = get_token(argv[1], &tok_list);
 
 		/* Test code */
 		tok_ptr = tok_list;
