@@ -1,6 +1,6 @@
 /************************************************************
-	Project#1:	CLP & DDL
- ************************************************************/
+Project#1:	CLP & DDL
+************************************************************/
 
 #include "db.h"
 #include <stdio.h>
@@ -10,49 +10,37 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
 	int rc = 0;
 	token_list *tok_list=NULL, *tok_ptr=NULL, *tmp_tok_ptr=NULL;
 
-	if ((argc != 2) || (strlen(argv[1]) == 0))
-	{
+	if ((argc != 2) || (strlen(argv[1]) == 0)) {
 		printf("Usage: db \"command statement\"");
 		return 1;
 	}
 
 	rc = initialize_tpd_list();
 
-  if (rc)
-  {
+	if (rc) {
 		printf("\nError in initialize_tpd_list().\nrc = %d\n", rc);
-  }
-	else
-	{
-    rc = get_token(argv[1], &tok_list);
+	} else {
+		rc = get_token(argv[1], &tok_list);
 
 		/* Test code */
 		tok_ptr = tok_list;
-		while (tok_ptr != NULL)
-		{
-			printf("%16s \t%d \t %d\n",tok_ptr->tok_string, tok_ptr->tok_class,
-				      tok_ptr->tok_value);
+		while (tok_ptr != NULL) {
+			printf("%16s \t%d \t %d\n", tok_ptr->tok_string, tok_ptr->tok_class, tok_ptr->tok_value);
 			tok_ptr = tok_ptr->next;
 		}
-    
-		if (!rc)
-		{
+
+		if (!rc) {
 			rc = do_semantic(tok_list);
 		}
 
-		if (rc)
-		{
+		if (rc) {
 			tok_ptr = tok_list;
-			while (tok_ptr != NULL)
-			{
-				if ((tok_ptr->tok_class == error) ||
-					  (tok_ptr->tok_value == INVALID))
-				{
+			while (tok_ptr != NULL) {
+				if ((tok_ptr->tok_class == error) || (tok_ptr->tok_value == INVALID)) {
 					printf("\nError in the string: %s\n", tok_ptr->tok_string);
 					printf("rc=%d\n", rc);
 					break;
@@ -61,13 +49,12 @@ int main(int argc, char** argv)
 			}
 		}
 
-    /* Whether the token list is valid or not, we need to free the memory */
+		/* Whether the token list is valid or not, we need to free the memory */
 		tok_ptr = tok_list;
-		while (tok_ptr != NULL)
-		{
-      tmp_tok_ptr = tok_ptr->next;
-      free(tok_ptr);
-      tok_ptr=tmp_tok_ptr;
+		while (tok_ptr != NULL) {
+			tmp_tok_ptr = tok_ptr->next;
+			free(tok_ptr);
+			tok_ptr=tmp_tok_ptr;
 		}
 	}
 
@@ -75,187 +62,163 @@ int main(int argc, char** argv)
 }
 
 /************************************************************* 
-	This is a lexical analyzer for simple SQL statements
- *************************************************************/
-int get_token(char* command, token_list** tok_list)
-{
-	int rc=0,i,j;
+This is a lexical analyzer for simple SQL statements
+*************************************************************/
+int get_token(char* command, token_list** tok_list) {
+	int rc = 0, i, j;
 	char *start, *cur, temp_string[MAX_TOK_LEN];
 	bool done = false;
-	
+
 	start = cur = command;
-	while (!done)
-	{
+	while (!done) {
 		bool found_keyword = false;
 
 		/* This is the TOP Level for each token */
-	  memset ((void*)temp_string, '\0', MAX_TOK_LEN);
+		memset ((void*)temp_string, '\0', MAX_TOK_LEN);
 		i = 0;
 
 		/* Get rid of all the leading blanks */
-		while (*cur == ' ')
+		while (*cur == ' ') {
 			cur++;
+		}
 
-		if (cur && isalpha(*cur))
-		{
+		if (cur && isalpha(*cur)) {
 			// find valid identifier
 			int t_class;
-			do 
-			{
+			do {
 				temp_string[i++] = *cur++;
-			}
-			while ((isalnum(*cur)) || (*cur == '_'));
+			} while ((isalnum(*cur)) || (*cur == '_'));
 
-			if (!(strchr(STRING_BREAK, *cur)))
-			{
+			if (!(strchr(STRING_BREAK, *cur))) {
 				/* If the next char following the keyword or identifier
-				   is not a blank, (, ), or a comma, then append this
-					 character to temp_string, and flag this as an error */
+				is not a blank, (, ), or a comma, then append this
+				character to temp_string, and flag this as an error */
 				temp_string[i++] = *cur++;
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
 				done = true;
-			}
-			else
-			{
-
+			} else {
 				// We have an identifier with at least 1 character
 				// Now check if this ident is a keyword
-				for (j = 0, found_keyword = false; j < TOTAL_KEYWORDS_PLUS_TYPE_NAMES; j++)
-				{
-					if ((stricmp(keyword_table[j], temp_string) == 0))
-					{
+				for (j = 0, found_keyword = false; j < TOTAL_KEYWORDS_PLUS_TYPE_NAMES; j++) {
+					if ((stricmp(keyword_table[j], temp_string) == 0)) {
 						found_keyword = true;
 						break;
 					}
 				}
 
-				if (found_keyword)
-				{
-				  if (KEYWORD_OFFSET+j < K_CREATE)
+				if (found_keyword) {
+					if (KEYWORD_OFFSET+j < K_CREATE) {
 						t_class = type_name;
-					else if (KEYWORD_OFFSET+j >= F_SUM)
-            t_class = function_name;
-          else
-					  t_class = keyword;
+					} else if (KEYWORD_OFFSET+j >= F_SUM) {
+						t_class = function_name;
+					} else {
+						t_class = keyword;
+					}
 
 					add_to_list(tok_list, temp_string, t_class, KEYWORD_OFFSET+j);
-				}
-				else
-				{
-					if (strlen(temp_string) <= MAX_IDENT_LEN)
-					  add_to_list(tok_list, temp_string, identifier, IDENT);
-					else
-					{
+				} else {
+					if (strlen(temp_string) <= MAX_IDENT_LEN) {
+						add_to_list(tok_list, temp_string, identifier, IDENT);
+					} else {
 						add_to_list(tok_list, temp_string, error, INVALID);
 						rc = INVALID;
 						done = true;
 					}
 				}
 
-				if (!*cur)
-				{
+				if (!*cur) {
 					add_to_list(tok_list, "", terminator, EOC);
 					done = true;
 				}
 			}
-		}
-		else if (isdigit(*cur))
-		{
+		} else if (isdigit(*cur)) {
 			// find valid number
-			do 
-			{
+			do {
 				temp_string[i++] = *cur++;
-			}
-			while (isdigit(*cur));
+			} while (isdigit(*cur));
 
-			if (!(strchr(NUMBER_BREAK, *cur)))
-			{
+			if (!(strchr(NUMBER_BREAK, *cur))) {
 				/* If the next char following the keyword or identifier
-				   is not a blank or a ), then append this
-					 character to temp_string, and flag this as an error */
+				is not a blank or a ), then append this
+				character to temp_string, and flag this as an error */
 				temp_string[i++] = *cur++;
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
 				done = true;
-			}
-			else
-			{
+			} else {
 				add_to_list(tok_list, temp_string, constant, INT_LITERAL);
 
-				if (!*cur)
-				{
+				if (!*cur) {
 					add_to_list(tok_list, "", terminator, EOC);
 					done = true;
 				}
 			}
-		}
-		else if ((*cur == '(') || (*cur == ')') || (*cur == ',') || (*cur == '*')
-		         || (*cur == '=') || (*cur == '<') || (*cur == '>'))
-		{
+		} else if ((*cur == '(') || (*cur == ')') || (*cur == ',') || (*cur == '*')
+			|| (*cur == '=') || (*cur == '<') || (*cur == '>')) {
 			/* Catch all the symbols here. Note: no look ahead here. */
 			int t_value;
-			switch (*cur)
-			{
-				case '(' : t_value = S_LEFT_PAREN; break;
-				case ')' : t_value = S_RIGHT_PAREN; break;
-				case ',' : t_value = S_COMMA; break;
-				case '*' : t_value = S_STAR; break;
-				case '=' : t_value = S_EQUAL; break;
-				case '<' : t_value = S_LESS; break;
-				case '>' : t_value = S_GREATER; break;
+			switch (*cur) {
+			case '(':
+				t_value = S_LEFT_PAREN;
+				break;
+			case ')':
+				t_value = S_RIGHT_PAREN;
+				break;
+			case ',':
+				t_value = S_COMMA;
+				break;
+			case '*':
+				t_value = S_STAR;
+				break;
+			case '=':
+				t_value = S_EQUAL;
+				break;
+			case '<':
+				t_value = S_LESS;
+				break;
+			case '>':
+				t_value = S_GREATER;
+				break;
 			}
 
 			temp_string[i++] = *cur++;
 
 			add_to_list(tok_list, temp_string, symbol, t_value);
 
-			if (!*cur)
-			{
+			if (!*cur) {
 				add_to_list(tok_list, "", terminator, EOC);
 				done = true;
 			}
-		}
-    else if (*cur == '\'')
-    {
-      /* Find STRING_LITERRAL */
+		} else if (*cur == '\'') {
+			/* Find STRING_LITERRAL */
 			int t_class;
-      cur++;
-			do 
-			{
+			cur++;
+			do {
 				temp_string[i++] = *cur++;
-			}
-			while ((*cur) && (*cur != '\''));
+			} while ((*cur) && (*cur != '\''));
 
-      temp_string[i] = '\0';
+			temp_string[i] = '\0';
 
-			if (!*cur)
-			{
+			if (!*cur) {
 				/* If we reach the end of line */
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
 				done = true;
-			}
-      else /* must be a ' */
-      {
-        add_to_list(tok_list, temp_string, constant, STRING_LITERAL);
-        cur++;
-				if (!*cur)
-				{
+			} else {
+				/* must be a ' */
+				add_to_list(tok_list, temp_string, constant, STRING_LITERAL);
+				cur++;
+				if (!*cur) {
 					add_to_list(tok_list, "", terminator, EOC);
 					done = true;
-        }
-      }
-    }
-		else
-		{
-			if (!*cur)
-			{
+				}
+			}
+		} else {
+			if (!*cur) {
 				add_to_list(tok_list, "", terminator, EOC);
 				done = true;
-			}
-			else
-			{
+			} else {
 				/* not a ident, number, or valid symbol */
 				temp_string[i++] = *cur++;
 				add_to_list(tok_list, temp_string, error, INVALID);
@@ -264,12 +227,11 @@ int get_token(char* command, token_list** tok_list)
 			}
 		}
 	}
-			
-  return rc;
+
+	return rc;
 }
 
-void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value)
-{
+void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value) {
 	token_list *cur = *tok_list;
 	token_list *ptr = NULL;
 
@@ -281,13 +243,12 @@ void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value)
 	ptr->tok_value = t_value;
 	ptr->next = NULL;
 
-  if (cur == NULL)
+	if (cur == NULL) {
 		*tok_list = ptr;
-	else
-	{
-		while (cur->next != NULL)
+	} else {
+		while (cur->next != NULL) {
 			cur = cur->next;
-
+		}
 		cur->next = ptr;
 	}
 	return;
@@ -297,38 +258,38 @@ int do_semantic(token_list *tok_list)
 {
 	int rc = 0, cur_cmd = INVALID_STATEMENT;
 	bool unique = false;
-  token_list *cur = tok_list;
+	token_list *cur = tok_list;
 
 	if ((cur->tok_value == K_CREATE) &&
-			((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
+		((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
 	{
 		printf("CREATE TABLE statement\n");
 		cur_cmd = CREATE_TABLE;
 		cur = cur->next->next;
 	}
 	else if ((cur->tok_value == K_DROP) &&
-					((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
+		((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
 	{
 		printf("DROP TABLE statement\n");
 		cur_cmd = DROP_TABLE;
 		cur = cur->next->next;
 	}
 	else if ((cur->tok_value == K_LIST) &&
-					((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
+		((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
 	{
 		printf("LIST TABLE statement\n");
 		cur_cmd = LIST_TABLE;
 		cur = cur->next->next;
 	}
 	else if ((cur->tok_value == K_LIST) &&
-					((cur->next != NULL) && (cur->next->tok_value == K_SCHEMA)))
+		((cur->next != NULL) && (cur->next->tok_value == K_SCHEMA)))
 	{
 		printf("LIST SCHEMA statement\n");
 		cur_cmd = LIST_SCHEMA;
 		cur = cur->next->next;
 	}
 	else
-  {
+	{
 		printf("Invalid statement\n");
 		rc = cur_cmd;
 	}
@@ -337,23 +298,23 @@ int do_semantic(token_list *tok_list)
 	{
 		switch(cur_cmd)
 		{
-			case CREATE_TABLE:
-						rc = sem_create_table(cur);
-						break;
-			case DROP_TABLE:
-						rc = sem_drop_table(cur);
-						break;
-			case LIST_TABLE:
-						rc = sem_list_tables();
-						break;
-			case LIST_SCHEMA:
-						rc = sem_list_schema(cur);
-						break;
-			default:
-					; /* no action */
+		case CREATE_TABLE:
+			rc = sem_create_table(cur);
+			break;
+		case DROP_TABLE:
+			rc = sem_drop_table(cur);
+			break;
+		case LIST_TABLE:
+			rc = sem_list_tables();
+			break;
+		case LIST_SCHEMA:
+			rc = sem_list_schema(cur);
+			break;
+		default:
+			; /* no action */
 		}
 	}
-	
+
 	return rc;
 }
 
@@ -371,8 +332,8 @@ int sem_create_table(token_list *t_list)
 	memset(&tab_entry, '\0', sizeof(tpd_entry));
 	cur = t_list;
 	if ((cur->tok_class != keyword) &&
-		  (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
+		(cur->tok_class != identifier) &&
+		(cur->tok_class != type_name))
 	{
 		// Error
 		rc = INVALID_TABLE_NAME;
@@ -404,8 +365,8 @@ int sem_create_table(token_list *t_list)
 				do
 				{
 					if ((cur->tok_class != keyword) &&
-							(cur->tok_class != identifier) &&
-							(cur->tok_class != type_name))
+						(cur->tok_class != identifier) &&
+						(cur->tok_class != type_name))
 					{
 						// Error
 						rc = INVALID_COLUMN_NAME;
@@ -416,7 +377,7 @@ int sem_create_table(token_list *t_list)
 						int i;
 						for(i = 0; i < cur_id; i++)
 						{
-              /* make column name case sensitive */
+							/* make column name case sensitive */
 							if (strcmp(col_entry[i].col_name, cur->tok_string)==0)
 							{
 								rc = DUPLICATE_COLUMN_NAME;
@@ -440,50 +401,50 @@ int sem_create_table(token_list *t_list)
 							}
 							else
 							{
-                /* Set the column type here, int or char */
+								/* Set the column type here, int or char */
 								col_entry[cur_id].col_type = cur->tok_value;
 								cur = cur->next;
-		
+
 								if (col_entry[cur_id].col_type == T_INT)
 								{
 									if ((cur->tok_value != S_COMMA) &&
-										  (cur->tok_value != K_NOT) &&
-										  (cur->tok_value != S_RIGHT_PAREN))
+										(cur->tok_value != K_NOT) &&
+										(cur->tok_value != S_RIGHT_PAREN))
 									{
 										rc = INVALID_COLUMN_DEFINITION;
 										cur->tok_value = INVALID;
 									}
-								  else
+									else
 									{
 										col_entry[cur_id].col_len = sizeof(int);
-										
+
 										if ((cur->tok_value == K_NOT) &&
-											  (cur->next->tok_value != K_NULL))
+											(cur->next->tok_value != K_NULL))
 										{
 											rc = INVALID_COLUMN_DEFINITION;
 											cur->tok_value = INVALID;
 										}	
 										else if ((cur->tok_value == K_NOT) &&
-											    (cur->next->tok_value == K_NULL))
+											(cur->next->tok_value == K_NULL))
 										{					
 											col_entry[cur_id].not_null = true;
 											cur = cur->next->next;
 										}
-	
+
 										if (!rc)
 										{
 											/* I must have either a comma or right paren */
 											if ((cur->tok_value != S_RIGHT_PAREN) &&
-												  (cur->tok_value != S_COMMA))
+												(cur->tok_value != S_COMMA))
 											{
 												rc = INVALID_COLUMN_DEFINITION;
 												cur->tok_value = INVALID;
 											}
 											else
-		                  {
+											{
 												if (cur->tok_value == S_RIGHT_PAREN)
 												{
- 													column_done = true;
+													column_done = true;
 												}
 												cur = cur->next;
 											}
@@ -502,7 +463,7 @@ int sem_create_table(token_list *t_list)
 									{
 										/* Enter char(n) processing */
 										cur = cur->next;
-		
+
 										if (cur->tok_value != INT_LITERAL)
 										{
 											rc = INVALID_COLUMN_LENGTH;
@@ -513,7 +474,7 @@ int sem_create_table(token_list *t_list)
 											/* Got a valid integer - convert */
 											col_entry[cur_id].col_len = atoi(cur->tok_string);
 											cur = cur->next;
-											
+
 											if (cur->tok_value != S_RIGHT_PAREN)
 											{
 												rc = INVALID_COLUMN_DEFINITION;
@@ -522,10 +483,10 @@ int sem_create_table(token_list *t_list)
 											else
 											{
 												cur = cur->next;
-						
+
 												if ((cur->tok_value != S_COMMA) &&
-														(cur->tok_value != K_NOT) &&
-														(cur->tok_value != S_RIGHT_PAREN))
+													(cur->tok_value != K_NOT) &&
+													(cur->tok_value != S_RIGHT_PAREN))
 												{
 													rc = INVALID_COLUMN_DEFINITION;
 													cur->tok_value = INVALID;
@@ -533,18 +494,18 @@ int sem_create_table(token_list *t_list)
 												else
 												{
 													if ((cur->tok_value == K_NOT) &&
-														  (cur->next->tok_value != K_NULL))
+														(cur->next->tok_value != K_NULL))
 													{
 														rc = INVALID_COLUMN_DEFINITION;
 														cur->tok_value = INVALID;
 													}
 													else if ((cur->tok_value == K_NOT) &&
-																	 (cur->next->tok_value == K_NULL))
+														(cur->next->tok_value == K_NULL))
 													{					
 														col_entry[cur_id].not_null = true;
 														cur = cur->next->next;
 													}
-		
+
 													if (!rc)
 													{
 														/* I must have either a comma or right paren */
@@ -554,7 +515,7 @@ int sem_create_table(token_list *t_list)
 															cur->tok_value = INVALID;
 														}
 														else
-													  {
+														{
 															if (cur->tok_value == S_RIGHT_PAREN)
 															{
 																column_done = true;
@@ -578,7 +539,7 @@ int sem_create_table(token_list *t_list)
 					}
 
 				} while ((rc == 0) && (!column_done));
-	
+
 				if ((column_done) && (cur->tok_value != EOC))
 				{
 					rc = INVALID_TABLE_DEFINITION;
@@ -590,8 +551,8 @@ int sem_create_table(token_list *t_list)
 					/* Now finished building tpd and add it to the tpd list */
 					tab_entry.num_columns = cur_id;
 					tab_entry.tpd_size = sizeof(tpd_entry) + 
-															 sizeof(cd_entry) *	tab_entry.num_columns;
-				  tab_entry.cd_offset = sizeof(tpd_entry);
+						sizeof(cd_entry) *	tab_entry.num_columns;
+					tab_entry.cd_offset = sizeof(tpd_entry);
 					new_entry = (tpd_entry*)calloc(1, tab_entry.tpd_size);
 
 					if (new_entry == NULL)
@@ -601,13 +562,13 @@ int sem_create_table(token_list *t_list)
 					else
 					{
 						memcpy((void*)new_entry,
-							     (void*)&tab_entry,
-									 sizeof(tpd_entry));
-		
+							(void*)&tab_entry,
+							sizeof(tpd_entry));
+
 						memcpy((void*)((char*)new_entry + sizeof(tpd_entry)),
-									 (void*)col_entry,
-									 sizeof(cd_entry) * tab_entry.num_columns);
-	
+							(void*)col_entry,
+							sizeof(cd_entry) * tab_entry.num_columns);
+
 						rc = add_tpd_to_list(new_entry);
 
 						free(new_entry);
@@ -616,7 +577,7 @@ int sem_create_table(token_list *t_list)
 			}
 		}
 	}
-  return rc;
+	return rc;
 }
 
 int sem_drop_table(token_list *t_list)
@@ -627,8 +588,8 @@ int sem_drop_table(token_list *t_list)
 
 	cur = t_list;
 	if ((cur->tok_class != keyword) &&
-		  (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
+		(cur->tok_class != identifier) &&
+		(cur->tok_class != type_name))
 	{
 		// Error
 		rc = INVALID_TABLE_NAME;
@@ -656,7 +617,7 @@ int sem_drop_table(token_list *t_list)
 		}
 	}
 
-  return rc;
+	return rc;
 }
 
 int sem_list_tables()
@@ -684,7 +645,7 @@ int sem_list_tables()
 		printf("****** End ******\n");
 	}
 
-  return rc;
+	return rc;
 }
 
 int sem_list_schema(token_list *t_list)
@@ -702,7 +663,7 @@ int sem_list_schema(token_list *t_list)
 	cur = t_list;
 
 	if (cur->tok_value != K_FOR)
-  {
+	{
 		rc = INVALID_STATEMENT;
 		cur->tok_value = INVALID;
 	}
@@ -711,8 +672,8 @@ int sem_list_schema(token_list *t_list)
 		cur = cur->next;
 
 		if ((cur->tok_class != keyword) &&
-			  (cur->tok_class != identifier) &&
-				(cur->tok_class != type_name))
+			(cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
 		{
 			// Error
 			rc = INVALID_TABLE_NAME;
@@ -729,10 +690,10 @@ int sem_list_schema(token_list *t_list)
 				if (cur->tok_value == K_TO)
 				{
 					cur = cur->next;
-					
+
 					if ((cur->tok_class != keyword) &&
-						  (cur->tok_class != identifier) &&
-							(cur->tok_class != type_name))
+						(cur->tok_class != identifier) &&
+						(cur->tok_class != type_name))
 					{
 						// Error
 						rc = INVALID_REPORT_FILE_NAME;
@@ -787,7 +748,7 @@ int sem_list_schema(token_list *t_list)
 						printf("Table Name               (table_name)  = %s\n", tab_entry->table_name);
 						printf("Number of Columns        (num_columns) = %d\n", tab_entry->num_columns);
 						printf("Column Descriptor Offset (cd_offset)   = %d\n", tab_entry->cd_offset);
-            printf("Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
+						printf("Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
 
 						if (report)
 						{
@@ -795,12 +756,12 @@ int sem_list_schema(token_list *t_list)
 							fprintf(fhandle, "Table Name               (table_name)  = %s\n", tab_entry->table_name);
 							fprintf(fhandle, "Number of Columns        (num_columns) = %d\n", tab_entry->num_columns);
 							fprintf(fhandle, "Column Descriptor Offset (cd_offset)   = %d\n", tab_entry->cd_offset);
-              fprintf(fhandle, "Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
+							fprintf(fhandle, "Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
 						}
 
 						/* Next, write the cd_entry information */
 						for(i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-								i < tab_entry->num_columns; i++, col_entry++)
+							i < tab_entry->num_columns; i++, col_entry++)
 						{
 							printf("Column Name   (col_name) = %s\n", col_entry->col_name);
 							printf("Column Id     (col_id)   = %d\n", col_entry->col_id);
@@ -817,7 +778,7 @@ int sem_list_schema(token_list *t_list)
 								fprintf(fhandle, "Not Null Flag (not_null) = %d\n\n", col_entry->not_null);
 							}
 						}
-	
+
 						if (report)
 						{
 							fflush(fhandle);
@@ -829,7 +790,7 @@ int sem_list_schema(token_list *t_list)
 		} // Invalid table name
 	} // Invalid statement
 
-  return rc;
+	return rc;
 }
 
 int initialize_tpd_list()
@@ -838,18 +799,18 @@ int initialize_tpd_list()
 	FILE *fhandle = NULL;
 	struct _stat file_stat;
 
-  /* Open for read */
-  if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
+	/* Open for read */
+	if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
 	{
 		if((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
 		{
 			rc = FILE_OPEN_ERROR;
 		}
-    else
+		else
 		{
 			g_tpd_list = NULL;
 			g_tpd_list = (tpd_list*)calloc(1, sizeof(tpd_list));
-			
+
 			if (!g_tpd_list)
 			{
 				rc = MEMORY_ERROR;
@@ -888,10 +849,10 @@ int initialize_tpd_list()
 
 		}
 	}
-    
+
 	return rc;
 }
-	
+
 int add_tpd_to_list(tpd_entry *tpd)
 {
 	int rc = 0;
@@ -902,7 +863,7 @@ int add_tpd_to_list(tpd_entry *tpd)
 	{
 		rc = FILE_OPEN_ERROR;
 	}
-  else
+	else
 	{
 		old_size = g_tpd_list->list_size;
 
@@ -910,14 +871,14 @@ int add_tpd_to_list(tpd_entry *tpd)
 		{
 			/* If this is an empty list, overlap the dummy header */
 			g_tpd_list->num_tables++;
-		 	g_tpd_list->list_size += (tpd->tpd_size - sizeof(tpd_entry));
+			g_tpd_list->list_size += (tpd->tpd_size - sizeof(tpd_entry));
 			fwrite(g_tpd_list, old_size - sizeof(tpd_entry), 1, fhandle);
 		}
 		else
 		{
 			/* There is at least 1, just append at the end */
 			g_tpd_list->num_tables++;
-		 	g_tpd_list->list_size += tpd->tpd_size;
+			g_tpd_list->list_size += tpd->tpd_size;
 			fwrite(g_tpd_list, old_size, 1, fhandle);
 		}
 
@@ -952,7 +913,7 @@ int drop_tpd_from_list(char *tabname)
 				{
 					rc = FILE_OPEN_ERROR;
 				}
-			  else
+				else
 				{
 					old_size = g_tpd_list->list_size;
 
@@ -975,28 +936,28 @@ int drop_tpd_from_list(char *tabname)
 
 							/* First, write the 8 byte header */
 							fwrite(g_tpd_list, sizeof(tpd_list) - sizeof(tpd_entry),
-								     1, fhandle);
+								1, fhandle);
 
 							/* Now write everything starting after the cur entry */
 							fwrite((char*)cur + cur->tpd_size,
-								     old_size - cur->tpd_size -
-										 (sizeof(tpd_list) - sizeof(tpd_entry)),
-								     1, fhandle);
+								old_size - cur->tpd_size -
+								(sizeof(tpd_list) - sizeof(tpd_entry)),
+								1, fhandle);
 						}
 					}
 					else
 					{
 						/* This is NOT the first entry - count > 0 */
 						g_tpd_list->num_tables--;
-					 	g_tpd_list->list_size -= cur->tpd_size;
+						g_tpd_list->list_size -= cur->tpd_size;
 
 						/* First, write everything from beginning to cur */
 						fwrite(g_tpd_list, ((char*)cur - (char*)g_tpd_list),
-									 1, fhandle);
+							1, fhandle);
 
 						/* Check if cur is the last entry. Note that g_tdp_list->list_size
-						   has already subtracted the cur->tpd_size, therefore it will
-						   point to the start of cur if cur was the last entry */
+						has already subtracted the cur->tpd_size, therefore it will
+						point to the start of cur if cur was the last entry */
 						if ((char*)g_tpd_list + g_tpd_list->list_size == (char*)cur)
 						{
 							/* If true, nothing else to write */
@@ -1004,19 +965,14 @@ int drop_tpd_from_list(char *tabname)
 						else
 						{
 							/* NOT the last entry, copy everything from the beginning of the
-							   next entry which is (cur + cur->tpd_size) and the remaining size */
-							fwrite((char*)cur + cur->tpd_size,
-										 old_size - cur->tpd_size -
-										 ((char*)cur - (char*)g_tpd_list),							     
-								     1, fhandle);
+							next entry which is (cur + cur->tpd_size) and the remaining size */
+							fwrite((char*)cur + cur->tpd_size, old_size - cur->tpd_size - ((char*)cur - (char*)g_tpd_list), 1, fhandle);
 						}
 					}
 
 					fflush(fhandle);
 					fclose(fhandle);
 				}
-
-				
 			}
 			else
 			{
@@ -1028,7 +984,7 @@ int drop_tpd_from_list(char *tabname)
 			}
 		}
 	}
-	
+
 	if (!found)
 	{
 		rc = INVALID_TABLE_NAME;
