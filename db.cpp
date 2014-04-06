@@ -261,43 +261,50 @@ int do_semantic(token_list *tok_list)
 	token_list *cur = tok_list;
 
 	if ((cur->tok_value == K_CREATE) &&
-		((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
-	{
+		((cur->next != NULL) && (cur->next->tok_value == K_TABLE))) {
 		printf("CREATE TABLE statement\n");
 		cur_cmd = CREATE_TABLE;
 		cur = cur->next->next;
-	}
-	else if ((cur->tok_value == K_DROP) &&
-		((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
-	{
+	} else if ((cur->tok_value == K_DROP) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_TABLE))) {
 		printf("DROP TABLE statement\n");
 		cur_cmd = DROP_TABLE;
 		cur = cur->next->next;
-	}
-	else if ((cur->tok_value == K_LIST) &&
-		((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
-	{
+	} else if ((cur->tok_value == K_LIST) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_TABLE))) {
 		printf("LIST TABLE statement\n");
 		cur_cmd = LIST_TABLE;
 		cur = cur->next->next;
-	}
-	else if ((cur->tok_value == K_LIST) &&
-		((cur->next != NULL) && (cur->next->tok_value == K_SCHEMA)))
-	{
+	} else if ((cur->tok_value == K_LIST) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_SCHEMA))) {
 		printf("LIST SCHEMA statement\n");
 		cur_cmd = LIST_SCHEMA;
 		cur = cur->next->next;
-	}
-	else
-	{
+	} else if ((cur->tok_value == K_INSERT) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_INTO))) {
+		printf("INSERT statement\n");
+		cur_cmd = INSERT;
+		cur = cur->next->next;
+	} else if ((cur->tok_value == K_DELETE) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_FROM))) {
+		printf("DELETE statement\n");
+		cur_cmd = DELETE;
+		cur = cur->next->next;
+	} else if (cur->tok_value == K_UPDATE) {
+		printf("UPDATE statement\n");
+		cur_cmd = UPDATE;
+		cur = cur->next;
+	} else if (cur->tok_value == K_SELECT) {
+		printf("SELECT statement\n");
+		cur_cmd = SELECT;
+		cur = cur->next;
+	} else {
 		printf("Invalid statement\n");
 		rc = cur_cmd;
 	}
 
-	if (cur_cmd != INVALID_STATEMENT)
-	{
-		switch(cur_cmd)
-		{
+	if (cur_cmd != INVALID_STATEMENT) {
+		switch(cur_cmd) {
 		case CREATE_TABLE:
 			rc = sem_create_table(cur);
 			break;
@@ -309,6 +316,18 @@ int do_semantic(token_list *tok_list)
 			break;
 		case LIST_SCHEMA:
 			rc = sem_list_schema(cur);
+			break;
+		case INSERT:
+			rc = sem_insert(cur);
+			break;
+		case DELETE:
+			rc = sem_delete(cur);
+			break;
+		case UPDATE:
+			rc = sem_update(cur);
+			break;
+		case SELECT:
+			rc = sem_select(cur);
 			break;
 		default:
 			; /* no action */
@@ -326,7 +345,7 @@ int sem_create_table(token_list *t_list)
 	tpd_entry *new_entry = NULL;
 	bool column_done = false;
 	int cur_id = 0;
-	cd_entry	col_entry[MAX_NUM_COL];
+	cd_entry col_entry[MAX_NUM_COL];
 
 
 	memset(&tab_entry, '\0', sizeof(tpd_entry));
@@ -589,30 +608,30 @@ int sem_drop_table(token_list *t_list)
 	cur = t_list;
 	if ((cur->tok_class != keyword) &&
 		(cur->tok_class != identifier) &&
-		(cur->tok_class != type_name))
-	{
+		(cur->tok_class != type_name)) {
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
-	}
-	else
-	{
-		if (cur->next->tok_value != EOC)
-		{
+	} else {
+		if (cur->next->tok_value != EOC) {
 			rc = INVALID_STATEMENT;
 			cur->next->tok_value = INVALID;
-		}
-		else
-		{
-			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-			{
+		} else {
+			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL) {
 				rc = TABLE_NOT_EXIST;
 				cur->tok_value = INVALID;
-			}
-			else
-			{
+			} else {
 				/* Found a valid tpd, drop it from tpd list */
 				rc = drop_tpd_from_list(cur->tok_string);
+				if (!rc) {
+					// Also delete table_name.tab file.
+					char table_filename[MAX_IDENT_LEN + 5];
+					sprintf(table_filename, "%s.tab", cur->tok_string);
+					if (remove(table_filename) != 0) {
+						rc = FILE_REMOVE_ERROR;
+						cur->tok_value = INVALID;
+					}
+				}
 			}
 		}
 	}
@@ -802,6 +821,7 @@ int initialize_tpd_list()
 	/* Open for read */
 	if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
 	{
+		// DB file "dbfile.bin" doesn't exist, so create it.
 		if((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
 		{
 			rc = FILE_OPEN_ERROR;
@@ -839,7 +859,7 @@ int initialize_tpd_list()
 		else
 		{
 			fread(g_tpd_list, file_stat.st_size, 1, fhandle);
-			fflush(fhandle);
+			//fflush(fhandle);
 			fclose(fhandle);
 
 			if (g_tpd_list->list_size != file_stat.st_size)
@@ -976,6 +996,7 @@ int drop_tpd_from_list(char *tabname)
 			}
 			else
 			{
+				/* not found yet, go on scanning next tpd */
 				if (num_tables > 0)
 				{
 					cur = (tpd_entry*)((char*)cur + cur->tpd_size);
@@ -1021,4 +1042,32 @@ tpd_entry* get_tpd_from_list(char *tabname)
 	}
 
 	return tpd;
+}
+
+int sem_insert(token_list *t_list) {
+	int rc = 0;
+	token_list *cur;
+	printf("unimplemented sem_insert\n");
+	return rc;
+}
+
+int sem_select(token_list *t_list) {
+	int rc = 0;
+	token_list *cur;
+	printf("unimplemented sem_select\n");
+	return rc;
+}
+
+int sem_delete(token_list *t_list) {
+	int rc = 0;
+	token_list *cur;
+	printf("unimplemented sem_delete\n");
+	return rc;
+}
+
+int sem_update(token_list *t_list) {
+	int rc = 0;
+	token_list *cur;
+	printf("unimplemented sem_update\n");
+	return rc;
 }

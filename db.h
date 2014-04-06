@@ -154,8 +154,20 @@ typedef enum error_return_codes {
 	/* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299, // -299
 	DBFILE_CORRUPTION, // -298
-	MEMORY_ERROR // -297
+	MEMORY_ERROR, // -297
+	FILE_REMOVE_ERROR // -296
 } return_codes;
+
+
+/* Table file structures in which we store records of that table */
+typedef struct table_file_header_def {
+	int file_size;
+	int record_size;
+	int num_records;
+	int record_offset;
+	int file_header_flag;
+	tpd_entry *tpd_ptr;
+} table_file_header;
 
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
@@ -165,13 +177,17 @@ int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
+int sem_insert(token_list *t_list);
+int sem_select(token_list *t_list);
+int sem_delete(token_list *t_list);
+int sem_update(token_list *t_list);
+int initialize_tpd_list();
+int add_tpd_to_list(tpd_entry *tpd);
+int drop_tpd_from_list(char *tabname);
+tpd_entry* get_tpd_from_list(char *tabname);
 
 /*
 Keep a global list of tpd - in real life, this will be stored
 in shared memory.  Build a set of functions/methods around this.
 */
 tpd_list *g_tpd_list;
-int initialize_tpd_list();
-int add_tpd_to_list(tpd_entry *tpd);
-int drop_tpd_from_list(char *tabname);
-tpd_entry* get_tpd_from_list(char *tabname);
