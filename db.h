@@ -185,6 +185,7 @@ int initialize_tpd_list();
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry* get_tpd_from_list(char *tabname);
+int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns);
 
 /*
 Keep a global list of tpd - in real life, this will be stored

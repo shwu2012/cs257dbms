@@ -337,8 +337,7 @@ int do_semantic(token_list *tok_list)
 	return rc;
 }
 
-int sem_create_table(token_list *t_list)
-{
+int sem_create_table(token_list *t_list) {
 	int rc = 0;
 	token_list *cur;
 	tpd_entry tab_entry;
@@ -352,94 +351,71 @@ int sem_create_table(token_list *t_list)
 	cur = t_list;
 	if ((cur->tok_class != keyword) &&
 		(cur->tok_class != identifier) &&
-		(cur->tok_class != type_name))
-	{
+		(cur->tok_class != type_name)) {
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
-	}
-	else
-	{
-		if ((new_entry = get_tpd_from_list(cur->tok_string)) != NULL)
-		{
+	} else {
+		if ((new_entry = get_tpd_from_list(cur->tok_string)) != NULL) {
 			rc = DUPLICATE_TABLE_NAME;
 			cur->tok_value = INVALID;
-		}
-		else
-		{
+		} else {
 			strcpy(tab_entry.table_name, cur->tok_string);
 			cur = cur->next;
-			if (cur->tok_value != S_LEFT_PAREN)
-			{
+			if (cur->tok_value != S_LEFT_PAREN) {
 				//Error
 				rc = INVALID_TABLE_DEFINITION;
 				cur->tok_value = INVALID;
-			}
-			else
-			{
+			} else {
 				memset(&col_entry, '\0', (MAX_NUM_COL * sizeof(cd_entry)));
 
 				/* Now build a set of column entries */
 				cur = cur->next;
-				do
-				{
+				do {
 					if ((cur->tok_class != keyword) &&
 						(cur->tok_class != identifier) &&
-						(cur->tok_class != type_name))
-					{
+						(cur->tok_class != type_name)) {
 						// Error
 						rc = INVALID_COLUMN_NAME;
 						cur->tok_value = INVALID;
-					}
-					else
-					{
+					} else {
 						int i;
-						for(i = 0; i < cur_id; i++)
-						{
+						for(i = 0; i < cur_id; i++) {
 							/* make column name case sensitive */
-							if (strcmp(col_entry[i].col_name, cur->tok_string)==0)
-							{
+							if (strcmp(col_entry[i].col_name, cur->tok_string) == 0) {
 								rc = DUPLICATE_COLUMN_NAME;
 								cur->tok_value = INVALID;
 								break;
 							}
 						}
 
-						if (!rc)
-						{
+						if (!rc) {
 							strcpy(col_entry[cur_id].col_name, cur->tok_string);
 							col_entry[cur_id].col_id = cur_id;
 							col_entry[cur_id].not_null = false;    /* set default */
 
 							cur = cur->next;
-							if (cur->tok_class != type_name)
-							{
+							if (cur->tok_class != type_name) {
 								// Error
 								rc = INVALID_TYPE_NAME;
 								cur->tok_value = INVALID;
-							}
-							else
-							{
+							} else {
 								/* Set the column type here, int or char */
 								col_entry[cur_id].col_type = cur->tok_value;
 								cur = cur->next;
 
-								if (col_entry[cur_id].col_type == T_INT)
-								{
+								// If current column type is T_INT.
+								if (col_entry[cur_id].col_type == T_INT) {
 									if ((cur->tok_value != S_COMMA) &&
 										(cur->tok_value != K_NOT) &&
-										(cur->tok_value != S_RIGHT_PAREN))
-									{
+										(cur->tok_value != S_RIGHT_PAREN)) {
 										rc = INVALID_COLUMN_DEFINITION;
 										cur->tok_value = INVALID;
-									}
-									else
-									{
+									} else {
 										col_entry[cur_id].col_len = sizeof(int);
 
 										if ((cur->tok_value == K_NOT) &&
-											(cur->next->tok_value != K_NULL))
-										{
+											(cur->next->tok_value != K_NULL)) {
 											rc = INVALID_COLUMN_DEFINITION;
 											cur->tok_value = INVALID;
 										}	
@@ -469,7 +445,7 @@ int sem_create_table(token_list *t_list)
 											}
 										}
 									}
-								}   // end of S_INT processing
+								}   // end of T_INT processing
 								else
 								{
 									// It must be char()
@@ -589,6 +565,14 @@ int sem_create_table(token_list *t_list)
 							sizeof(cd_entry) * tab_entry.num_columns);
 
 						rc = add_tpd_to_list(new_entry);
+
+						// Create .tab file.
+						if(!rc){
+							rc = create_tab_file(tab_entry.table_name, col_entry, tab_entry.num_columns);
+							if (rc) {
+								cur->tok_value = INVALID;
+							}
+						}
 
 						free(new_entry);
 					}
@@ -1069,5 +1053,40 @@ int sem_update(token_list *t_list) {
 	int rc = 0;
 	token_list *cur;
 	printf("unimplemented sem_update\n");
+	return rc;
+}
+
+int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns) {
+	int rc = 0;
+	table_file_header tab_header;
+
+	int record_size = 0;
+	for (int i = 0; i < num_columns; i++) {
+		record_size += (1 + col_entry[i].col_len);
+	}
+	// The total record_size must be rounded to a 4-byte boundary.
+	if (record_size % 4 != 0) {
+		record_size += (4 - record_size % 4);
+	}
+
+	tab_header.file_size = sizeof(table_file_header);
+	tab_header.record_size = record_size;
+	tab_header.num_records = 0;
+	tab_header.record_offset = sizeof(table_file_header);
+	tab_header.file_header_flag = 0;
+	tab_header.tpd_ptr = NULL;
+	
+	char table_filename[MAX_IDENT_LEN + 5];
+	sprintf(table_filename, "%s.tab", table_name);
+	FILE *fhandle = NULL;
+
+	if((fhandle = fopen(table_filename, "wbc")) == NULL) {
+		rc = FILE_OPEN_ERROR;
+	} else {
+		fwrite((void *)&tab_header, tab_header.file_size, 1, fhandle);
+		fflush(fhandle);
+		fclose(fhandle);
+	}
+
 	return rc;
 }
