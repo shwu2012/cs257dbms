@@ -1,7 +1,12 @@
+#ifndef DB_HEADER_FILE
+#define DB_HEADER_FILE
+
 /********************************************************************
 db.h - This file contains all the structures, defines, and function
 prototype for the db.exe program.
 *********************************************************************/
+
+#include <stdio.h>
 
 #define MAX_IDENT_LEN 16
 #define MAX_NUM_COL 16
@@ -55,14 +60,14 @@ typedef struct t_list {
 /* This enum defines the different classes of tokens for 
 semantic processing. */
 typedef enum t_class {
-	keyword = 1, // 1
-	identifier, // 2
-	symbol, // 3
-	type_name, // 4
-	constant, // 5
-	function_name, // 6
-	terminator, // 7
-	error // 8
+	TOKEN_CLASS_KEYWORD = 1, // 1
+	TOKEN_CLASS_IDENTIFIER, // 2
+	TOKEN_CLASS_SYMBOL, // 3
+	TOKEN_CLASS_TYPE_NAME, // 4
+	TOKEN_CLASS_CONSTANT, // 5
+	TOKEN_CLASS_FUNCTION_NAME, // 6
+	TOKEN_CLASS_TERMINATOR, // 7
+	TOKEN_CLASS_ERROR // 8
 } token_class;
 
 /* This enum defines the different values associated with
@@ -151,11 +156,14 @@ typedef enum error_return_codes {
 	INVALID_COLUMN_DEFINITION, // -390
 	INVALID_COLUMN_LENGTH, // -389
 	INVALID_REPORT_FILE_NAME, // -388
+	INVALID_VALUE, // -387
+	INVALID_VALUES_COUNT, // -386
 	/* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299, // -299
 	DBFILE_CORRUPTION, // -298
 	MEMORY_ERROR, // -297
-	FILE_REMOVE_ERROR // -296
+	FILE_REMOVE_ERROR, // -296
+	TABFILE_CORRUPTION // -295
 } return_codes;
 
 
@@ -186,9 +194,15 @@ int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry* get_tpd_from_list(char *tabname);
 int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns);
+int check_insert_values(token_list * const value_tokens, cd_entry* const col_entry, int num_columns);
+void free_token_list(token_list* const t_list);
+int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
+int get_file_size(FILE *fhandle);
 
 /*
 Keep a global list of tpd - in real life, this will be stored
 in shared memory.  Build a set of functions/methods around this.
 */
 tpd_list *g_tpd_list;
+
+#endif /* DB_HEADER_FILE */

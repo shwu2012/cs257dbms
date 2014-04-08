@@ -12,7 +12,7 @@ Project#1:	CLP & DDL
 
 int main(int argc, char** argv) {
 	int rc = 0;
-	token_list *tok_list=NULL, *tok_ptr=NULL, *tmp_tok_ptr=NULL;
+	token_list *tok_list=NULL, *tok_ptr=NULL;
 
 	if ((argc != 2) || (strlen(argv[1]) == 0)) {
 		printf("Usage: db \"command statement\"");
@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
 		if (rc) {
 			tok_ptr = tok_list;
 			while (tok_ptr != NULL) {
-				if ((tok_ptr->tok_class == error) || (tok_ptr->tok_value == INVALID)) {
+				if ((tok_ptr->tok_class == TOKEN_CLASS_ERROR) || (tok_ptr->tok_value == INVALID)) {
 					printf("\nError in the string: %s\n", tok_ptr->tok_string);
 					printf("rc=%d\n", rc);
 					break;
@@ -50,12 +50,12 @@ int main(int argc, char** argv) {
 		}
 
 		/* Whether the token list is valid or not, we need to free the memory */
-		tok_ptr = tok_list;
-		while (tok_ptr != NULL) {
-			tmp_tok_ptr = tok_ptr->next;
-			free(tok_ptr);
-			tok_ptr=tmp_tok_ptr;
-		}
+		free_token_list(tok_list);
+	}
+
+	// Free g_tpd_list since all changes have been stored in files.
+	if (g_tpd_list) {
+		free(g_tpd_list);
 	}
 
 	return rc;
@@ -94,7 +94,7 @@ int get_token(char* command, token_list** tok_list) {
 				is not a blank, (, ), or a comma, then append this
 				character to temp_string, and flag this as an error */
 				temp_string[i++] = *cur++;
-				add_to_list(tok_list, temp_string, error, INVALID);
+				add_to_list(tok_list, temp_string, TOKEN_CLASS_ERROR, INVALID);
 				rc = INVALID;
 				done = true;
 			} else {
@@ -109,26 +109,26 @@ int get_token(char* command, token_list** tok_list) {
 
 				if (found_keyword) {
 					if (KEYWORD_OFFSET+j < K_CREATE) {
-						t_class = type_name;
+						t_class = TOKEN_CLASS_TYPE_NAME;
 					} else if (KEYWORD_OFFSET+j >= F_SUM) {
-						t_class = function_name;
+						t_class = TOKEN_CLASS_FUNCTION_NAME;
 					} else {
-						t_class = keyword;
+						t_class = TOKEN_CLASS_KEYWORD;
 					}
 
 					add_to_list(tok_list, temp_string, t_class, KEYWORD_OFFSET+j);
 				} else {
 					if (strlen(temp_string) <= MAX_IDENT_LEN) {
-						add_to_list(tok_list, temp_string, identifier, IDENT);
+						add_to_list(tok_list, temp_string, TOKEN_CLASS_IDENTIFIER, IDENT);
 					} else {
-						add_to_list(tok_list, temp_string, error, INVALID);
+						add_to_list(tok_list, temp_string, TOKEN_CLASS_ERROR, INVALID);
 						rc = INVALID;
 						done = true;
 					}
 				}
 
 				if (!*cur) {
-					add_to_list(tok_list, "", terminator, EOC);
+					add_to_list(tok_list, "", TOKEN_CLASS_TERMINATOR, EOC);
 					done = true;
 				}
 			}
@@ -143,14 +143,14 @@ int get_token(char* command, token_list** tok_list) {
 				is not a blank or a ), then append this
 				character to temp_string, and flag this as an error */
 				temp_string[i++] = *cur++;
-				add_to_list(tok_list, temp_string, error, INVALID);
+				add_to_list(tok_list, temp_string, TOKEN_CLASS_ERROR, INVALID);
 				rc = INVALID;
 				done = true;
 			} else {
-				add_to_list(tok_list, temp_string, constant, INT_LITERAL);
+				add_to_list(tok_list, temp_string, TOKEN_CLASS_CONSTANT, INT_LITERAL);
 
 				if (!*cur) {
-					add_to_list(tok_list, "", terminator, EOC);
+					add_to_list(tok_list, "", TOKEN_CLASS_TERMINATOR, EOC);
 					done = true;
 				}
 			}
@@ -184,10 +184,10 @@ int get_token(char* command, token_list** tok_list) {
 
 			temp_string[i++] = *cur++;
 
-			add_to_list(tok_list, temp_string, symbol, t_value);
+			add_to_list(tok_list, temp_string, TOKEN_CLASS_SYMBOL, t_value);
 
 			if (!*cur) {
-				add_to_list(tok_list, "", terminator, EOC);
+				add_to_list(tok_list, "", TOKEN_CLASS_TERMINATOR, EOC);
 				done = true;
 			}
 		} else if (*cur == '\'') {
@@ -202,26 +202,26 @@ int get_token(char* command, token_list** tok_list) {
 
 			if (!*cur) {
 				/* If we reach the end of line */
-				add_to_list(tok_list, temp_string, error, INVALID);
+				add_to_list(tok_list, temp_string, TOKEN_CLASS_ERROR, INVALID);
 				rc = INVALID;
 				done = true;
 			} else {
 				/* must be a ' */
-				add_to_list(tok_list, temp_string, constant, STRING_LITERAL);
+				add_to_list(tok_list, temp_string, TOKEN_CLASS_CONSTANT, STRING_LITERAL);
 				cur++;
 				if (!*cur) {
-					add_to_list(tok_list, "", terminator, EOC);
+					add_to_list(tok_list, "", TOKEN_CLASS_TERMINATOR, EOC);
 					done = true;
 				}
 			}
 		} else {
 			if (!*cur) {
-				add_to_list(tok_list, "", terminator, EOC);
+				add_to_list(tok_list, "", TOKEN_CLASS_TERMINATOR, EOC);
 				done = true;
 			} else {
 				/* not a ident, number, or valid symbol */
 				temp_string[i++] = *cur++;
-				add_to_list(tok_list, temp_string, error, INVALID);
+				add_to_list(tok_list, temp_string, TOKEN_CLASS_ERROR, INVALID);
 				rc = INVALID;
 				done = true;
 			}
@@ -349,9 +349,9 @@ int sem_create_table(token_list *t_list) {
 
 	memset(&tab_entry, '\0', sizeof(tpd_entry));
 	cur = t_list;
-	if ((cur->tok_class != keyword) &&
-		(cur->tok_class != identifier) &&
-		(cur->tok_class != type_name)) {
+	if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
+		(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
+		(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
@@ -372,9 +372,9 @@ int sem_create_table(token_list *t_list) {
 				/* Now build a set of column entries */
 				cur = cur->next;
 				do {
-					if ((cur->tok_class != keyword) &&
-						(cur->tok_class != identifier) &&
-						(cur->tok_class != type_name)) {
+					if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
+						(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
+						(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
 						// Error
 						rc = INVALID_COLUMN_NAME;
 						cur->tok_value = INVALID;
@@ -395,12 +395,12 @@ int sem_create_table(token_list *t_list) {
 							col_entry[cur_id].not_null = false;    /* set default */
 
 							cur = cur->next;
-							if (cur->tok_class != type_name) {
+							if (cur->tok_class != TOKEN_CLASS_TYPE_NAME) {
 								// Error
 								rc = INVALID_TYPE_NAME;
 								cur->tok_value = INVALID;
 							} else {
-								/* Set the column type here, int or char */
+								/* Set the column type here, T_INT or T_CHAR */
 								col_entry[cur_id].col_type = cur->tok_value;
 								cur = cur->next;
 
@@ -590,9 +590,9 @@ int sem_drop_table(token_list *t_list)
 	tpd_entry *tab_entry = NULL;
 
 	cur = t_list;
-	if ((cur->tok_class != keyword) &&
-		(cur->tok_class != identifier) &&
-		(cur->tok_class != type_name)) {
+	if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
+		(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
+		(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
@@ -674,9 +674,9 @@ int sem_list_schema(token_list *t_list)
 	{
 		cur = cur->next;
 
-		if ((cur->tok_class != keyword) &&
-			(cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
+		if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
+			(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
+			(cur->tok_class != TOKEN_CLASS_TYPE_NAME))
 		{
 			// Error
 			rc = INVALID_TABLE_NAME;
@@ -694,9 +694,9 @@ int sem_list_schema(token_list *t_list)
 				{
 					cur = cur->next;
 
-					if ((cur->tok_class != keyword) &&
-						(cur->tok_class != identifier) &&
-						(cur->tok_class != type_name))
+					if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
+						(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
+						(cur->tok_class != TOKEN_CLASS_TYPE_NAME))
 					{
 						// Error
 						rc = INVALID_REPORT_FILE_NAME;
@@ -800,7 +800,6 @@ int initialize_tpd_list()
 {
 	int rc = 0;
 	FILE *fhandle = NULL;
-	struct _stat file_stat;
 
 	/* Open for read */
 	if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
@@ -831,10 +830,9 @@ int initialize_tpd_list()
 	else
 	{
 		/* There is a valid dbfile.bin file - get file size */
-		_fstat(_fileno(fhandle), &file_stat);
-		printf("dbfile.bin size = %d\n", file_stat.st_size);
-
-		g_tpd_list = (tpd_list*)calloc(1, file_stat.st_size);
+		int file_size = get_file_size(fhandle);
+		printf("dbfile.bin size = %ld\n", file_size);
+		g_tpd_list = (tpd_list*)calloc(1, file_size);
 
 		if (!g_tpd_list)
 		{
@@ -842,11 +840,10 @@ int initialize_tpd_list()
 		}
 		else
 		{
-			fread(g_tpd_list, file_stat.st_size, 1, fhandle);
-			//fflush(fhandle);
+			fread(g_tpd_list, file_size, 1, fhandle);
 			fclose(fhandle);
 
-			if (g_tpd_list->list_size != file_stat.st_size)
+			if (g_tpd_list->list_size != file_size)
 			{
 				rc = DBFILE_CORRUPTION;
 			}
@@ -1031,7 +1028,170 @@ tpd_entry* get_tpd_from_list(char *tabname)
 int sem_insert(token_list *t_list) {
 	int rc = 0;
 	token_list *cur;
-	printf("unimplemented sem_insert\n");
+	tpd_entry *tab_entry;
+
+	cur = t_list;
+	if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
+		(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
+		(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
+			// Error
+			rc = INVALID_TABLE_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+	}
+
+	// Check whether the table name exists.
+	tab_entry = get_tpd_from_list(cur->tok_string);
+
+	if (tab_entry == NULL) {
+		rc = TABLE_NOT_EXIST;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	cur = cur->next;
+	if ((cur->tok_value != K_VALUES) && (cur->next->tok_value != S_LEFT_PAREN))	{
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	cur = cur->next->next;
+	// Read all the value tokens and store them in a token list.
+
+	bool values_done = false;
+	token_list *value_tokens = NULL;
+	token_list *current_value_token = NULL;
+	while (!values_done) {
+		if ((cur->tok_value == STRING_LITERAL) || (cur->tok_value == INT_LITERAL) || (cur->tok_value == K_NULL)) {
+			if (value_tokens == NULL) {
+				// The pointer current_value_token points to the new created value_token.
+				current_value_token = (token_list *) malloc(sizeof(token_list));
+				value_tokens = current_value_token;
+				current_value_token->tok_class = cur->tok_class;
+				current_value_token->tok_value = cur->tok_value;
+				strcpy(current_value_token->tok_string, cur->tok_string);
+				current_value_token->next = NULL;
+			} else {
+				// The pointer current_value_token points to the previous value_token.
+				current_value_token->next = (token_list *) malloc(sizeof(token_list));
+				current_value_token->next->tok_class = cur->tok_class;
+				current_value_token->next->tok_value = cur->tok_value;
+				strcpy(current_value_token->next->tok_string, cur->tok_string);
+				current_value_token->next->next = NULL;
+				// Move current_value_token forward.
+				current_value_token = current_value_token->next;
+			}
+		} else {
+			rc = INVALID_VALUE;
+			break;
+		}
+		cur = cur->next;
+		if (cur->tok_value == S_COMMA) {
+			// nothing to do
+		} else if (cur->tok_value == S_RIGHT_PAREN) {
+			values_done = true;
+		} else {
+			rc = INVALID_STATEMENT;
+			break;
+		}
+		cur = cur->next;
+	}
+
+	if (rc) {
+		free_token_list(value_tokens);
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	cd_entry * const col_desc_entries = (cd_entry *) (((char *) tab_entry) + tab_entry->cd_offset);
+	rc = check_insert_values(value_tokens, col_desc_entries, tab_entry->num_columns);
+
+	if (rc) {
+		free_token_list(value_tokens);
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Now we can append the new record and write the .tab file back.
+	table_file_header *table_header;
+	rc = load_table_records(tab_entry, &table_header);
+
+	if (rc) {
+		free_token_list(value_tokens);
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Compose the new record.
+	// The maximum possible length of each field is 1 (for the data length) + 255 (a string of 255 characters) = 256.
+	// For x86 and x64 machines, the default stack size is 1 MB, so it is safe to have 16 * 256 = 4K memory in stack for the new record.
+	char record_bytes[MAX_NUM_COL * 256];
+	memset(record_bytes, '\0', sizeof(record_bytes));
+	unsigned char value_length = 0;
+	int cur_offset_in_record = 0;
+	current_value_token = value_tokens;
+	int int_value = 0;
+	char *string_value = NULL;
+	for(int i = 0; i < tab_entry->num_columns; i++) {
+		if (col_desc_entries[i].col_type == T_INT) {
+			// Store a integer.
+			if (current_value_token->tok_value == K_NULL) {
+				// Null value.
+				value_length = 0;
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
+			} else {
+				// Int value.
+				int_value = atoi(current_value_token->tok_string);
+				value_length = col_desc_entries[i].col_len;
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += 1;
+				memcpy(record_bytes + cur_offset_in_record, &int_value, value_length);
+				cur_offset_in_record += col_desc_entries[i].col_len;
+			}
+		} else {
+			// Store a string.
+			if (current_value_token->tok_value == K_NULL) {
+				// Null value.
+				value_length = 0;
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
+			} else {
+				// String value.
+				string_value = current_value_token->tok_string;
+				value_length = strlen(string_value);
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += 1;
+				memcpy(record_bytes + cur_offset_in_record, string_value, strlen(string_value));
+				cur_offset_in_record += col_desc_entries[i].col_len;
+			}
+		}
+		current_value_token = current_value_token->next;
+	}
+
+	char table_filename[MAX_IDENT_LEN + 5];
+	sprintf(table_filename, "%s.tab", table_header->tpd_ptr->table_name);
+	FILE *fhandle = NULL;
+	if((fhandle = fopen(table_filename, "wbc")) == NULL) {
+		rc = FILE_OPEN_ERROR;
+		free_token_list(value_tokens);
+		free(table_header);
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Add one more record in table header.
+	int old_table_file_size = table_header->file_size;
+	table_header->num_records++;
+	table_header->file_size += table_header->record_size;
+	table_header->tpd_ptr = NULL;
+
+	fwrite(table_header, old_table_file_size, 1, fhandle);
+	fwrite(record_bytes, table_header->record_size, 1, fhandle);
+	fflush(fhandle);
+	fclose(fhandle);
+	free(table_header);
 	return rc;
 }
 
@@ -1089,4 +1249,86 @@ int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns) {
 	}
 
 	return rc;
+}
+
+int check_insert_values(token_list * const value_tokens, cd_entry * const col_entry, int num_columns) {
+	int rc = 0;
+	int token_count = 0;
+	token_list *cur_token = value_tokens;
+	while(cur_token) {
+		token_count++;
+		cur_token = cur_token->next;
+	}
+	if (token_count != num_columns) {
+		return INVALID_VALUES_COUNT;
+	}
+
+	cur_token = value_tokens;
+	int token_index = 0;
+	while(cur_token) {
+		if (cur_token->tok_value == INT_LITERAL) {
+			if (col_entry[token_index].col_type != T_INT) {
+				rc = INVALID_VALUE;
+				break;
+			}
+		} else if (cur_token->tok_value == STRING_LITERAL) {
+			if ((col_entry[token_index].col_type != T_CHAR) || (col_entry[token_index].col_len < strlen(cur_token->tok_string))) {
+				rc = INVALID_VALUE;
+				break;
+			}
+		} else if (cur_token->tok_value == K_NULL) {
+			if (col_entry[token_index].not_null) {
+				rc = INVALID_VALUE;
+				break;
+			}
+		} else {
+			rc = INVALID_VALUE;
+			break;
+		}
+
+		cur_token = cur_token->next;
+		token_index++;
+	}
+
+	return rc;
+}
+
+void free_token_list(token_list* const t_list) {
+	token_list* tok_ptr = t_list;
+	token_list* tmp_tok_ptr = NULL;
+	while (tok_ptr != NULL) {
+		tmp_tok_ptr = tok_ptr->next;
+		free(tok_ptr);
+		tok_ptr = tmp_tok_ptr;
+	}
+}
+
+int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header) {
+	int rc = 0;
+	char table_filename[MAX_IDENT_LEN + 5];
+	sprintf(table_filename, "%s.tab", tpd->table_name);
+	FILE *fhandle = NULL;
+	if((fhandle = fopen(table_filename, "rbc")) == NULL) {
+		return FILE_OPEN_ERROR;
+	}
+	int file_size = get_file_size(fhandle);
+	table_file_header *tab_header = (table_file_header *) malloc(file_size);
+	fread(tab_header, file_size, 1, fhandle);
+	fclose(fhandle);
+	if (tab_header->file_size != file_size) {
+		rc = TABFILE_CORRUPTION;
+		free(tab_header);
+	}
+	tab_header->tpd_ptr = tpd;
+	*pp_table_header = tab_header;
+	return rc;
+}
+
+int get_file_size(FILE *fhandle) {
+	if (!fhandle) {
+		return -1;
+	}
+	struct _stat file_stat;
+	_fstat(_fileno(fhandle), &file_stat);
+	return (int)(file_stat.st_size);
 }
