@@ -50,16 +50,16 @@ typedef struct tpd_list_def {
 string into separate tokens in function get_tokens().  For
 each token, a new token_list will be allocated and linked 
 together. */
-typedef struct t_list {
+typedef struct token_list_def {
 	char tok_string[MAX_TOK_LEN];
 	int tok_class;
 	int tok_value;
-	struct t_list *next;
+	struct token_list_def *next;
 } token_list;
 
 /* This enum defines the different classes of tokens for 
 semantic processing. */
-typedef enum t_class {
+typedef enum token_class_def {
 	TOKEN_CLASS_KEYWORD = 1, // 1
 	TOKEN_CLASS_IDENTIFIER, // 2
 	TOKEN_CLASS_SYMBOL, // 3
@@ -72,7 +72,7 @@ typedef enum t_class {
 
 /* This enum defines the different values associated with
 a single valid token.  Use for semantic processing. */
-typedef enum t_value {
+typedef enum token_value_def {
 	T_INT = 10, // 10 - new type should be added above this line
 	T_CHAR, // 11 
 	K_CREATE, // 12
@@ -129,7 +129,7 @@ const char * const keyword_table[] = {
 };
 
 /* This enum defines a set of possible statements */
-typedef enum s_statement {
+typedef enum semantic_statement_def {
 	INVALID_STATEMENT = -199, // -199
 	CREATE_TABLE = 100, // 100
 	DROP_TABLE, // 101
@@ -143,7 +143,7 @@ typedef enum s_statement {
 
 /* This enum has a list of all the errors that should be detected
 by the program.  Can append to this if necessary. */
-typedef enum error_return_codes {
+typedef enum return_codes_def {
 	INVALID_TABLE_NAME = -399, // -399
 	DUPLICATE_TABLE_NAME, // -398
 	TABLE_NOT_EXIST, // -397
