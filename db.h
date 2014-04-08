@@ -9,6 +9,7 @@ prototype for the db.exe program.
 #include <stdio.h>
 
 #define MAX_IDENT_LEN 16
+#define MAX_STRING_LEN 255
 #define MAX_NUM_COL 16
 #define MAX_TOK_LEN 32
 #define KEYWORD_OFFSET 10
@@ -177,6 +178,17 @@ typedef struct table_file_header_def {
 	tpd_entry *tpd_ptr;
 } table_file_header;
 
+/* The structure to represent the int/string typed value in each record field. */
+enum class FieldValueType {UNKNOWN, INT, STRING};
+
+typedef struct field_value_def {
+	FieldValueType type;
+	bool is_null;
+	int int_value; // Fill int value here.
+	char string_value[MAX_STRING_LEN + 1]; // Fill string value here.
+	token_list *linked_token; // Point to the original token.
+} field_value;
+
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
@@ -194,10 +206,11 @@ int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry* get_tpd_from_list(char *tabname);
 int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns);
-int check_insert_values(token_list * const value_tokens, cd_entry* const col_entry, int num_columns);
+int check_insert_values(field_value field_values[], int num_values, cd_entry col_entry[], int num_columns);
 void free_token_list(token_list* const t_list);
 int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
 int get_file_size(FILE *fhandle);
+int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char * const record_bytes, int num_record_bytes);
 
 /*
 Keep a global list of tpd - in real life, this will be stored

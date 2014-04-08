@@ -192,7 +192,6 @@ int get_token(char* command, token_list** tok_list) {
 			}
 		} else if (*cur == '\'') {
 			/* Find STRING_LITERRAL */
-			int t_class;
 			cur++;
 			do {
 				temp_string[i++] = *cur++;
@@ -1057,31 +1056,28 @@ int sem_insert(token_list *t_list) {
 	}
 
 	cur = cur->next->next;
-	// Read all the value tokens and store them in a token list.
 
+	// Read all the value tokens and store them in a field_value array.
 	bool values_done = false;
-	token_list *value_tokens = NULL;
-	token_list *current_value_token = NULL;
+	field_value field_values[MAX_NUM_COL];
+	memset(field_values, '\0', sizeof(field_values));
+	int num_values = 0;
 	while (!values_done) {
-		if ((cur->tok_value == STRING_LITERAL) || (cur->tok_value == INT_LITERAL) || (cur->tok_value == K_NULL)) {
-			if (value_tokens == NULL) {
-				// The pointer current_value_token points to the new created value_token.
-				current_value_token = (token_list *) malloc(sizeof(token_list));
-				value_tokens = current_value_token;
-				current_value_token->tok_class = cur->tok_class;
-				current_value_token->tok_value = cur->tok_value;
-				strcpy(current_value_token->tok_string, cur->tok_string);
-				current_value_token->next = NULL;
-			} else {
-				// The pointer current_value_token points to the previous value_token.
-				current_value_token->next = (token_list *) malloc(sizeof(token_list));
-				current_value_token->next->tok_class = cur->tok_class;
-				current_value_token->next->tok_value = cur->tok_value;
-				strcpy(current_value_token->next->tok_string, cur->tok_string);
-				current_value_token->next->next = NULL;
-				// Move current_value_token forward.
-				current_value_token = current_value_token->next;
-			}
+		// TODO: Check if values_count is greater than MAX_NUM_COL.
+		if (cur->tok_value == STRING_LITERAL) {
+			field_values[num_values].type = FieldValueType::STRING;
+			field_values[num_values].is_null = false;
+			strcpy(field_values[num_values].string_value, cur->tok_string);
+			field_values[num_values].linked_token = cur;
+		} else if (cur->tok_value == INT_LITERAL) {
+			field_values[num_values].type = FieldValueType::INT;
+			field_values[num_values].is_null = false;
+			field_values[num_values].int_value = atoi(cur->tok_string);
+			field_values[num_values].linked_token = cur;
+		} else if (cur->tok_value == K_NULL) {
+			field_values[num_values].type = FieldValueType::UNKNOWN;
+			field_values[num_values].is_null = true;
+			field_values[num_values].linked_token = cur;
 		} else {
 			rc = INVALID_VALUE;
 			break;
@@ -1096,19 +1092,18 @@ int sem_insert(token_list *t_list) {
 			break;
 		}
 		cur = cur->next;
+		num_values++;
 	}
 
 	if (rc) {
-		free_token_list(value_tokens);
 		cur->tok_value = INVALID;
 		return rc;
 	}
 
 	cd_entry * const col_desc_entries = (cd_entry *) (((char *) tab_entry) + tab_entry->cd_offset);
-	rc = check_insert_values(value_tokens, col_desc_entries, tab_entry->num_columns);
+	rc = check_insert_values(field_values, num_values, col_desc_entries, tab_entry->num_columns);
 
 	if (rc) {
-		free_token_list(value_tokens);
 		cur->tok_value = INVALID;
 		return rc;
 	}
@@ -1118,7 +1113,6 @@ int sem_insert(token_list *t_list) {
 	rc = load_table_records(tab_entry, &table_header);
 
 	if (rc) {
-		free_token_list(value_tokens);
 		cur->tok_value = INVALID;
 		return rc;
 	}
@@ -1126,56 +1120,14 @@ int sem_insert(token_list *t_list) {
 	// Compose the new record.
 	// The maximum possible length of each field is 1 (for the data length) + 255 (a string of 255 characters) = 256.
 	// For x86 and x64 machines, the default stack size is 1 MB, so it is safe to have 16 * 256 = 4K memory in stack for the new record.
-	char record_bytes[MAX_NUM_COL * 256];
-	memset(record_bytes, '\0', sizeof(record_bytes));
-	unsigned char value_length = 0;
-	int cur_offset_in_record = 0;
-	current_value_token = value_tokens;
-	int int_value = 0;
-	char *string_value = NULL;
-	for(int i = 0; i < tab_entry->num_columns; i++) {
-		if (col_desc_entries[i].col_type == T_INT) {
-			// Store a integer.
-			if (current_value_token->tok_value == K_NULL) {
-				// Null value.
-				value_length = 0;
-				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
-				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
-			} else {
-				// Int value.
-				int_value = atoi(current_value_token->tok_string);
-				value_length = col_desc_entries[i].col_len;
-				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
-				cur_offset_in_record += 1;
-				memcpy(record_bytes + cur_offset_in_record, &int_value, value_length);
-				cur_offset_in_record += col_desc_entries[i].col_len;
-			}
-		} else {
-			// Store a string.
-			if (current_value_token->tok_value == K_NULL) {
-				// Null value.
-				value_length = 0;
-				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
-				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
-			} else {
-				// String value.
-				string_value = current_value_token->tok_string;
-				value_length = strlen(string_value);
-				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
-				cur_offset_in_record += 1;
-				memcpy(record_bytes + cur_offset_in_record, string_value, strlen(string_value));
-				cur_offset_in_record += col_desc_entries[i].col_len;
-			}
-		}
-		current_value_token = current_value_token->next;
-	}
+	char record_bytes[MAX_NUM_COL * (1 + MAX_STRING_LEN)];
+	fill_record(col_desc_entries, field_values, num_values, record_bytes, sizeof(record_bytes));
 
 	char table_filename[MAX_IDENT_LEN + 5];
 	sprintf(table_filename, "%s.tab", table_header->tpd_ptr->table_name);
 	FILE *fhandle = NULL;
 	if((fhandle = fopen(table_filename, "wbc")) == NULL) {
 		rc = FILE_OPEN_ERROR;
-		free_token_list(value_tokens);
 		free(table_header);
 		cur->tok_value = INVALID;
 		return rc;
@@ -1197,21 +1149,21 @@ int sem_insert(token_list *t_list) {
 
 int sem_select(token_list *t_list) {
 	int rc = 0;
-	token_list *cur;
+	//token_list *cur;
 	printf("unimplemented sem_select\n");
 	return rc;
 }
 
 int sem_delete(token_list *t_list) {
 	int rc = 0;
-	token_list *cur;
+	//token_list *cur;
 	printf("unimplemented sem_delete\n");
 	return rc;
 }
 
 int sem_update(token_list *t_list) {
 	int rc = 0;
-	token_list *cur;
+	//token_list *cur;
 	printf("unimplemented sem_update\n");
 	return rc;
 }
@@ -1251,45 +1203,42 @@ int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns) {
 	return rc;
 }
 
-int check_insert_values(token_list * const value_tokens, cd_entry * const col_entry, int num_columns) {
+int check_insert_values(field_value field_values[], int num_values, cd_entry col_entry[], int num_columns) {
 	int rc = 0;
-	int token_count = 0;
-	token_list *cur_token = value_tokens;
-	while(cur_token) {
-		token_count++;
-		cur_token = cur_token->next;
-	}
-	if (token_count != num_columns) {
+	if (num_values != num_columns) {
 		return INVALID_VALUES_COUNT;
 	}
 
-	cur_token = value_tokens;
-	int token_index = 0;
-	while(cur_token) {
-		if (cur_token->tok_value == INT_LITERAL) {
-			if (col_entry[token_index].col_type != T_INT) {
-				rc = INVALID_VALUE;
-				break;
+	for(int i = 0; i < num_values; i++) {
+		if (field_values[i].is_null) {
+			// Field value is NULL.
+			if (col_entry[i].col_type == T_INT) {
+				field_values[i].type = FieldValueType::INT;
+			} else {
+				field_values[i].type = FieldValueType::STRING;
 			}
-		} else if (cur_token->tok_value == STRING_LITERAL) {
-			if ((col_entry[token_index].col_type != T_CHAR) || (col_entry[token_index].col_len < strlen(cur_token->tok_string))) {
-				rc = INVALID_VALUE;
-				break;
-			}
-		} else if (cur_token->tok_value == K_NULL) {
-			if (col_entry[token_index].not_null) {
+			if (col_entry[i].not_null) {
+				field_values[i].linked_token->tok_value = INVALID;
 				rc = INVALID_VALUE;
 				break;
 			}
 		} else {
-			rc = INVALID_VALUE;
-			break;
+			// Field value is not NULL, so it must be either integer or string.
+			if (field_values[i].type == FieldValueType::INT) {
+				if (col_entry[i].col_type != T_INT) {
+					field_values[i].linked_token->tok_value = INVALID;
+					rc = INVALID_VALUE;
+					break;
+				}
+			} else if (field_values[i].type == FieldValueType::STRING) {
+				if ((col_entry[i].col_type != T_CHAR) || (col_entry[i].col_len < (int)strlen(field_values[i].string_value))) {
+					field_values[i].linked_token->tok_value = INVALID;
+					rc = INVALID_VALUE;
+					break;
+				}
+			}
 		}
-
-		cur_token = cur_token->next;
-		token_index++;
 	}
-
 	return rc;
 }
 
@@ -1331,4 +1280,48 @@ int get_file_size(FILE *fhandle) {
 	struct _stat file_stat;
 	_fstat(_fileno(fhandle), &file_stat);
 	return (int)(file_stat.st_size);
+}
+
+int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char * const record_bytes, int num_record_bytes) {
+	memset(record_bytes, '\0', num_record_bytes);
+	unsigned char value_length = 0;
+	int cur_offset_in_record = 0;
+	int int_value = 0;
+	char *string_value = NULL;
+	for(int i = 0; i < num_values; i++) {
+		if (field_values[i].type == FieldValueType::INT) {
+			// Store a integer.
+			if (field_values[i].is_null) {
+				// Null value.
+				value_length = 0;
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
+			} else {
+				// Integer value.
+				int_value = field_values[i].int_value;
+				value_length = col_desc_entries[i].col_len;
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += 1;
+				memcpy(record_bytes + cur_offset_in_record, &int_value, value_length);
+				cur_offset_in_record += col_desc_entries[i].col_len;
+			}
+		} else {
+			// Store a string.
+			if (field_values[i].is_null) {
+				// Null value.
+				value_length = 0;
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
+			} else {
+				// String value.
+				string_value = field_values[i].string_value;
+				value_length = strlen(string_value);
+				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
+				cur_offset_in_record += 1;
+				memcpy(record_bytes + cur_offset_in_record, string_value, strlen(string_value));
+				cur_offset_in_record += col_desc_entries[i].col_len;
+			}
+		}
+	}
+	return cur_offset_in_record;
 }
