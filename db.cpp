@@ -348,9 +348,7 @@ int sem_create_table(token_list *t_list) {
 
 	memset(&tab_entry, '\0', sizeof(tpd_entry));
 	cur = t_list;
-	if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
-		(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
-		(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
+	if (!can_be_identifier(cur)) {
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
@@ -371,9 +369,7 @@ int sem_create_table(token_list *t_list) {
 				/* Now build a set of column entries */
 				cur = cur->next;
 				do {
-					if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
-						(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
-						(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
+					if (!can_be_identifier(cur)) {
 						// Error
 						rc = INVALID_COLUMN_NAME;
 						cur->tok_value = INVALID;
@@ -589,9 +585,7 @@ int sem_drop_table(token_list *t_list)
 	tpd_entry *tab_entry = NULL;
 
 	cur = t_list;
-	if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
-		(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
-		(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
+	if (!can_be_identifier(cur)) {
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
@@ -673,9 +667,7 @@ int sem_list_schema(token_list *t_list)
 	{
 		cur = cur->next;
 
-		if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
-			(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
-			(cur->tok_class != TOKEN_CLASS_TYPE_NAME))
+		if (!can_be_identifier(cur))
 		{
 			// Error
 			rc = INVALID_TABLE_NAME;
@@ -693,9 +685,7 @@ int sem_list_schema(token_list *t_list)
 				{
 					cur = cur->next;
 
-					if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
-						(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
-						(cur->tok_class != TOKEN_CLASS_TYPE_NAME))
+					if (!can_be_identifier(cur))
 					{
 						// Error
 						rc = INVALID_REPORT_FILE_NAME;
@@ -762,8 +752,8 @@ int sem_list_schema(token_list *t_list)
 						}
 
 						/* Next, write the cd_entry information */
-						for(i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-							i < tab_entry->num_columns; i++, col_entry++)
+						get_cd_entries(tab_entry, &col_entry);
+						for(i = 0; i < tab_entry->num_columns; i++, col_entry++)
 						{
 							printf("Column Name   (col_name) = %s\n", col_entry->col_name);
 							printf("Column Id     (col_id)   = %d\n", col_entry->col_id);
@@ -1026,13 +1016,9 @@ tpd_entry* get_tpd_from_list(char *tabname)
 
 int sem_insert(token_list *t_list) {
 	int rc = 0;
-	token_list *cur;
-	tpd_entry *tab_entry;
+	token_list *cur = t_list;
 
-	cur = t_list;
-	if ((cur->tok_class != TOKEN_CLASS_KEYWORD) &&
-		(cur->tok_class != TOKEN_CLASS_IDENTIFIER) &&
-		(cur->tok_class != TOKEN_CLASS_TYPE_NAME)) {
+	if (!can_be_identifier(cur)) {
 			// Error
 			rc = INVALID_TABLE_NAME;
 			cur->tok_value = INVALID;
@@ -1040,7 +1026,7 @@ int sem_insert(token_list *t_list) {
 	}
 
 	// Check whether the table name exists.
-	tab_entry = get_tpd_from_list(cur->tok_string);
+	tpd_entry *tab_entry = get_tpd_from_list(cur->tok_string);
 
 	if (tab_entry == NULL) {
 		rc = TABLE_NOT_EXIST;
@@ -1069,15 +1055,18 @@ int sem_insert(token_list *t_list) {
 			field_values[num_values].is_null = false;
 			strcpy(field_values[num_values].string_value, cur->tok_string);
 			field_values[num_values].linked_token = cur;
+			field_values[num_values].col_id = num_values;
 		} else if (cur->tok_value == INT_LITERAL) {
 			field_values[num_values].type = FieldValueType::INT;
 			field_values[num_values].is_null = false;
 			field_values[num_values].int_value = atoi(cur->tok_string);
 			field_values[num_values].linked_token = cur;
+			field_values[num_values].col_id = num_values;
 		} else if (cur->tok_value == K_NULL) {
 			field_values[num_values].type = FieldValueType::UNKNOWN;
 			field_values[num_values].is_null = true;
 			field_values[num_values].linked_token = cur;
+			field_values[num_values].col_id = num_values;
 		} else {
 			rc = INVALID_VALUE;
 			break;
@@ -1095,12 +1084,19 @@ int sem_insert(token_list *t_list) {
 		num_values++;
 	}
 
+	if (values_done && (cur->tok_value != EOC)) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
 	if (rc) {
 		cur->tok_value = INVALID;
 		return rc;
 	}
 
-	cd_entry * const col_desc_entries = (cd_entry *) (((char *) tab_entry) + tab_entry->cd_offset);
+	cd_entry *col_desc_entries = NULL;
+	get_cd_entries(tab_entry, &col_desc_entries);
 	rc = check_insert_values(field_values, num_values, col_desc_entries, tab_entry->num_columns);
 
 	if (rc) {
@@ -1149,21 +1145,148 @@ int sem_insert(token_list *t_list) {
 
 int sem_select(token_list *t_list) {
 	int rc = 0;
-	//token_list *cur;
-	printf("unimplemented sem_select\n");
+	token_list *cur = t_list;
+
+	// Extract field names.
+	field_name field_names[MAX_NUM_COL];
+	bool fields_done = false;
+	int wildcard_field_index = -1;
+	int num_fields = 0;
+	while(!fields_done) {
+		if (!can_be_identifier(cur)) {
+				// Error column name.
+				rc = INVALID_COLUMN_NAME;
+				cur->tok_value = INVALID;
+				return rc;
+		}
+
+		// Check if wildcard has already been caught.
+		if (wildcard_field_index == 0) {
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+
+		if (strcmp(cur->tok_string, "*") == 0) {
+			// Wildcard must appear only once, as the first column name.
+			if (wildcard_field_index == -1 && num_fields == 0) {
+				wildcard_field_index = 0;
+			} else {
+				rc = INVALID_COLUMN_NAME;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		}
+		strcpy(field_names[num_fields].name, cur->tok_string);
+		field_names[num_fields].linked_token = cur;
+		num_fields++;
+		cur = cur->next;
+		if (cur->tok_value == S_COMMA) {
+			cur = cur->next;
+		} else {
+			fields_done = true;
+		}
+	}
+	
+	if (cur->tok_value != K_FROM) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	cur = cur->next;
+	if (!can_be_identifier(cur)) {
+			// Error
+			rc = INVALID_TABLE_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+	}
+
+	// Check whether the table name exists.
+	tpd_entry *tab_entry = get_tpd_from_list(cur->tok_string);
+	if (tab_entry == NULL) {
+		rc = TABLE_NOT_EXIST;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	cd_entry *cd_entries = NULL;
+	get_cd_entries(tab_entry, &cd_entries);
+
+	// Expand wildcard field to all field names of the table.
+	if (wildcard_field_index == 0) {
+		token_list *wildcard_token = field_names[wildcard_field_index].linked_token;
+		num_fields = tab_entry->num_columns;
+		for(int i = 0; i < num_fields; i++) {
+			strcpy(field_names[i].name, cd_entries[i].col_name);
+			field_names[i].linked_token = wildcard_token;
+		}
+	}
+
+	// Check if all field names exist in that table and generate sorted_cd_entries.
+	cd_entry *sorted_cd_entries[MAX_NUM_COL];
+	for(int i = 0; i < num_fields; i++) {
+		int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, field_names[i].name);
+		if (col_index < 0) {
+			rc = INVALID_COLUMN_NAME;
+			field_names[i].linked_token->tok_value = INVALID;
+			return rc;
+		} else {
+			sorted_cd_entries[i] = &cd_entries[col_index];
+		}
+	}
+
+	cur = cur->next;
+	if (cur->tok_value != EOC) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	table_file_header *tab_header = NULL;
+	if ((rc = load_table_records(tab_entry, &tab_header)) != 0) {
+		return rc;
+	}
+
+	// Print columns header.
+	print_table_border(sorted_cd_entries, num_fields);
+	print_table_column_names(sorted_cd_entries, field_names, num_fields);
+	print_table_border(sorted_cd_entries, num_fields);
+
+	// Print records in rows.
+	char *record_in_table = NULL;
+	get_table_records(tab_header, &record_in_table);
+	field_value field_values[MAX_NUM_COL];
+	for(int i = 0; i < tab_header->num_records; i++) {
+		// Fill all field values (not only displayed columns) from current record.
+		memset(field_values, '\0', sizeof(field_values));
+		fill_field_values(cd_entries, field_values, tab_entry->num_columns, record_in_table);
+		// Print a record.
+		print_table_row(sorted_cd_entries, num_fields, field_values, tab_entry->num_columns);
+		// Move forward to next record.
+		record_in_table += tab_header->record_size;
+	}
+	print_table_border(sorted_cd_entries, num_fields);
+
+	// TODO: Support aggregated fields.
+	// TODO: Support WHERE.
+	// TODO: Support ORDER_BY.
+	free(tab_header);
 	return rc;
 }
 
 int sem_delete(token_list *t_list) {
 	int rc = 0;
-	//token_list *cur;
+	//token_list *cur = t_list;
+	// TODO:
 	printf("unimplemented sem_delete\n");
 	return rc;
 }
 
 int sem_update(token_list *t_list) {
 	int rc = 0;
-	//token_list *cur;
+	//token_list *cur = t_list;
+	// TODO:
 	printf("unimplemented sem_update\n");
 	return rc;
 }
@@ -1177,9 +1300,7 @@ int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns) {
 		record_size += (1 + col_entry[i].col_len);
 	}
 	// The total record_size must be rounded to a 4-byte boundary.
-	if (record_size % 4 != 0) {
-		record_size += (4 - record_size % 4);
-	}
+	record_size = round_integer(record_size, 4);
 
 	tab_header.file_size = sizeof(table_file_header);
 	tab_header.record_size = record_size;
@@ -1282,7 +1403,7 @@ int get_file_size(FILE *fhandle) {
 	return (int)(file_stat.st_size);
 }
 
-int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char * const record_bytes, int num_record_bytes) {
+int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes) {
 	memset(record_bytes, '\0', num_record_bytes);
 	unsigned char value_length = 0;
 	int cur_offset_in_record = 0;
@@ -1324,4 +1445,109 @@ int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num
 		}
 	}
 	return cur_offset_in_record;
+}
+
+bool can_be_identifier(token_list *token) {
+	// Any keyword and type name can also be a valid identifier.
+	return (token->tok_class == TOKEN_CLASS_KEYWORD) ||
+		(token->tok_class != TOKEN_CLASS_IDENTIFIER) ||
+		(token->tok_class != TOKEN_CLASS_TYPE_NAME);
+}
+
+int fill_field_values(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[]) {
+	int offset_in_record = 0;
+	unsigned char value_length = 0;
+	for (int i = 0; i < num_values; i++) {
+		// Get value length.
+		memcpy(&value_length, record_bytes + offset_in_record, 1);
+		offset_in_record += 1;
+
+		// Get field value.
+		field_values[i].col_id = col_desc_entries[i].col_id;
+		field_values[i].is_null = (value_length == 0);
+		field_values[i].linked_token = NULL;
+		if (col_desc_entries[i].col_type == T_INT) {
+			// Set an integer.
+			field_values[i].type = FieldValueType::INT;
+			if (!field_values[i].is_null) {
+				memcpy(&field_values[i].int_value, record_bytes + offset_in_record, value_length);
+			}
+		} else {
+			// Set a string.
+			field_values[i].type = FieldValueType::STRING;
+			if (!field_values[i].is_null) {
+				memcpy(field_values[i].string_value, record_bytes + offset_in_record, value_length);
+				field_values[i].string_value[value_length] = '\0';
+			}
+		}
+		offset_in_record += col_desc_entries[i].col_len;
+	}
+	return offset_in_record;
+}
+
+void print_table_border(cd_entry *cd_entries[], int num_values) {
+	int col_width = 0;
+	for(int i = 0; i < num_values; i++) {
+		printf("+");
+		col_width = column_display_width(cd_entries[i]);
+		for (int j = 0 ; j < col_width + 2; j++) {
+			printf("-");
+		}
+	}
+	printf("+\n");
+}
+
+void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], int num_values) {
+	int col_gap = 0;
+	for (int i = 0; i < num_values; i++) {
+		printf("%c %s", '|', field_names[i].name);
+		col_gap = column_display_width(cd_entries[i]) - strlen(cd_entries[i]->col_name) + 1;
+		for (int j = 0; j < col_gap; j++) {
+			printf(" ");
+		}
+	}
+	printf("%c\n", '|');
+}
+
+int column_display_width(cd_entry *col_entry) {
+	int col_name_len = strlen(col_entry->col_name);
+	if (col_entry->col_len > col_name_len) {
+		return col_entry->col_len;
+	} else {
+		return col_name_len;
+	}
+}
+
+void print_table_row(cd_entry *sorted_cd_entries[], int num_cols, field_value field_values[], int num_values) {
+	int col_gap = 0;
+	char display_value[MAX_STRING_LEN+1];
+	int col_index = -1;
+	for (int i = 0; i < num_cols; i++) {
+		col_index = sorted_cd_entries[i]->col_id;
+		if (!field_values[col_index].is_null) {
+			if (field_values[col_index].type == FieldValueType::INT) {
+				sprintf(display_value, "%d", field_values[col_index].int_value);
+			} else {
+				strcpy(display_value, field_values[col_index].string_value);
+			}
+		} else {
+			display_value[0] = '\0';
+		}
+		printf("%c %s", '|', display_value);
+		col_gap = column_display_width(sorted_cd_entries[i]) - strlen(display_value) + 1;
+		for (int j = 0; j < col_gap; j++) {
+			printf(" ");
+		}
+	}
+	printf("%c\n", '|');
+}
+
+int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name) {
+	for (int i = 0; i < num_cols; i++) {
+		// TODO: Is column name case sensitive?
+		if (strcmp(cd_entries[i].col_name, col_name) == 0) {
+			return i;
+		}
+	}
+	return -1;
 }

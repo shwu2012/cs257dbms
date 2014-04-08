@@ -167,7 +167,6 @@ typedef enum return_codes_def {
 	TABFILE_CORRUPTION // -295
 } return_codes;
 
-
 /* Table file structures in which we store records of that table */
 typedef struct table_file_header_def {
 	int file_size;
@@ -187,7 +186,13 @@ typedef struct field_value_def {
 	int int_value; // Fill int value here.
 	char string_value[MAX_STRING_LEN + 1]; // Fill string value here.
 	token_list *linked_token; // Point to the original token.
+	int col_id; // Column ID.
 } field_value;
+
+typedef struct field_name_def {
+	char name[MAX_IDENT_LEN + 1]; // Fill field name here.
+	token_list *linked_token; // Point to the original token.
+} field_name;
 
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
@@ -210,7 +215,37 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry col
 void free_token_list(token_list* const t_list);
 int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
 int get_file_size(FILE *fhandle);
-int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char * const record_bytes, int num_record_bytes);
+int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes);
+int fill_field_values(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[]);
+bool can_be_identifier(token_list *token);
+void print_table_border(cd_entry *cd_entries[], int num_values);
+void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], int num_values);
+void print_table_row(cd_entry *sorted_cd_entries[], int num_cols, field_value field_values[], int num_values);
+int column_display_width(cd_entry *col_entry);
+int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name);
+
+
+/* inline functions */
+
+/* Get column descriptor entries from the table descriptor entry. */
+inline void get_cd_entries(tpd_entry *tab_entry, cd_entry **pp_cd_entry) {
+	*pp_cd_entry = (cd_entry *) (((char *) tab_entry) + tab_entry->cd_offset);
+}
+
+/* Get pointer to the first record in a table. */
+inline void get_table_records(table_file_header *tab_header, char **pp_record) {
+	*pp_record = NULL;
+	if (tab_header->file_size > tab_header->record_offset) {
+		*pp_record = ((char *) tab_header) + tab_header->record_offset;
+	}
+}
+
+/* Integer round */
+inline int round_integer(int value, int round) {
+	int m = value % round;
+	return m ? (value + round - m) : value;
+}
+
 
 /*
 Keep a global list of tpd - in real life, this will be stored
