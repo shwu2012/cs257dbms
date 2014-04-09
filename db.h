@@ -159,6 +159,7 @@ typedef enum return_codes_def {
 	INVALID_REPORT_FILE_NAME, // -388
 	INVALID_VALUE, // -387
 	INVALID_VALUES_COUNT, // -386
+	INVALID_AGGREGATE_COLUMN, // -385
 	/* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299, // -299
 	DBFILE_CORRUPTION, // -298
@@ -177,9 +178,9 @@ typedef struct table_file_header_def {
 	tpd_entry *tpd_ptr;
 } table_file_header;
 
-/* The structure to represent the int/string typed value in each record field. */
 enum class FieldValueType {UNKNOWN, INT, STRING};
 
+/* The structure to represent the int/string typed value in each record field. */
 typedef struct field_value_def {
 	FieldValueType type;
 	bool is_null;
@@ -189,6 +190,7 @@ typedef struct field_value_def {
 	int col_id; // Column ID.
 } field_value;
 
+/* The structure to represent the field value of each record field. */
 typedef struct field_name_def {
 	char name[MAX_IDENT_LEN + 1]; // Fill field name here.
 	token_list *linked_token; // Point to the original token.
@@ -217,10 +219,10 @@ int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
 int get_file_size(FILE *fhandle);
 int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes);
 int fill_field_values(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[]);
-bool can_be_identifier(token_list *token);
 void print_table_border(cd_entry *cd_entries[], int num_values);
 void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], int num_values);
 void print_table_row(cd_entry *sorted_cd_entries[], int num_cols, field_value field_values[], int num_values);
+void print_aggregate_result(int aggregate_type, int num_fields, int records_count, int int_sum, cd_entry* sorted_cd_entries[]);
 int column_display_width(cd_entry *col_entry);
 int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name);
 
@@ -240,10 +242,27 @@ inline void get_table_records(table_file_header *tab_header, char **pp_record) {
 	}
 }
 
+/* Check if a token can be an identifier. */
+inline bool can_be_identifier(token_list *token) {
+	if (!token) {
+		return false;
+	}
+	// Any keyword and type name can also be a valid identifier.
+	return (token->tok_class == TOKEN_CLASS_KEYWORD) ||
+		(token->tok_class == TOKEN_CLASS_IDENTIFIER) ||
+		(token->tok_class == TOKEN_CLASS_TYPE_NAME);
+}
+
 /* Integer round */
 inline int round_integer(int value, int round) {
 	int m = value % round;
 	return m ? (value + round - m) : value;
+}
+
+inline void repeat_print_char(char c, int times) {
+	for (int i = 0; i < times; i++) {
+		printf("%c", c);
+	}
 }
 
 

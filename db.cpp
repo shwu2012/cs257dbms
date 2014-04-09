@@ -1147,13 +1147,43 @@ int sem_select(token_list *t_list) {
 	int rc = 0;
 	token_list *cur = t_list;
 
-	// Extract field names.
 	field_name field_names[MAX_NUM_COL];
 	bool fields_done = false;
 	int wildcard_field_index = -1;
 	int num_fields = 0;
+
+	// Try parse aggregate operator: SUM, AVG, or COUNT.
+	int aggregate_type = 0;
+	if (cur->tok_class == TOKEN_CLASS_FUNCTION_NAME && cur->next->tok_value == S_LEFT_PAREN) {
+		aggregate_type = cur->tok_value; // Can be F_COUNT, F_SUM, or F_AVG.
+		if (!(can_be_identifier(cur->next->next) || (cur->next->next != NULL && cur->next->next->tok_value == S_STAR))) {
+			// Error column name.
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+		cur = cur->next->next;
+		strcpy(field_names[num_fields].name, cur->tok_string);
+		field_names[num_fields].linked_token = cur;
+		if (strcmp(cur->tok_string, "*") == 0) {
+			wildcard_field_index = 0;
+		}
+		cur = cur->next;
+		if (cur->tok_value != S_RIGHT_PAREN) {
+			// Error column name.
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		} else {
+			cur = cur->next;
+			num_fields++;
+			fields_done = true;
+		}
+	}
+	
+	// Extract field names. However, it will be skipped if the unique aggregate field is found.
 	while(!fields_done) {
-		if (!can_be_identifier(cur)) {
+		if (!(can_be_identifier(cur) || cur->tok_value == S_STAR)) {
 				// Error column name.
 				rc = INVALID_COLUMN_NAME;
 				cur->tok_value = INVALID;
@@ -1232,7 +1262,18 @@ int sem_select(token_list *t_list) {
 			field_names[i].linked_token->tok_value = INVALID;
 			return rc;
 		} else {
-			sorted_cd_entries[i] = &cd_entries[col_index];
+			// SUM and AVG aggregate functions are only valid on the unique interger column.
+			if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+				if ((num_fields == 1) && (cd_entries[col_index].col_type == T_INT)) {
+					sorted_cd_entries[i] = &cd_entries[col_index];
+				} else {
+					rc = INVALID_AGGREGATE_COLUMN;
+					field_names[i].linked_token->tok_value = INVALID;
+					return rc;
+				}
+			} else {
+				sorted_cd_entries[i] = &cd_entries[col_index];
+			}
 		}
 	}
 
@@ -1249,26 +1290,53 @@ int sem_select(token_list *t_list) {
 	}
 
 	// Print columns header.
-	print_table_border(sorted_cd_entries, num_fields);
-	print_table_column_names(sorted_cd_entries, field_names, num_fields);
-	print_table_border(sorted_cd_entries, num_fields);
+	if (aggregate_type == 0) {
+		print_table_border(sorted_cd_entries, num_fields);
+		print_table_column_names(sorted_cd_entries, field_names, num_fields);
+		print_table_border(sorted_cd_entries, num_fields);
+	}
 
 	// Print records in rows.
 	char *record_in_table = NULL;
 	get_table_records(tab_header, &record_in_table);
 	field_value field_values[MAX_NUM_COL];
+	int aggregate_int_sum = 0;
+	int records_count = 0;
+	int aggregate_records_count = 0;
 	for(int i = 0; i < tab_header->num_records; i++) {
 		// Fill all field values (not only displayed columns) from current record.
 		memset(field_values, '\0', sizeof(field_values));
 		fill_field_values(cd_entries, field_values, tab_entry->num_columns, record_in_table);
-		// Print a record.
-		print_table_row(sorted_cd_entries, num_fields, field_values, tab_entry->num_columns);
+		if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+			// SUM(col) or AVG(col), ignore NULL rows.
+			if (!field_values[sorted_cd_entries[0]->col_id].is_null) {
+				aggregate_int_sum += field_values[sorted_cd_entries[0]->col_id].int_value;
+				aggregate_records_count++;
+			}
+		} else if (aggregate_type == F_COUNT) {
+			if (num_fields == 1) {
+				// count(col), ignore NULL rows.
+				if (!field_values[sorted_cd_entries[0]->col_id].is_null) {
+					aggregate_records_count++;
+				}
+			} else {
+				// count(*), include NULL rows.
+				aggregate_records_count++;
+			}
+		} else {
+			// No aggregate function. Just print raw record.
+			print_table_row(sorted_cd_entries, num_fields, field_values, tab_entry->num_columns);
+		}
+		records_count++;
 		// Move forward to next record.
 		record_in_table += tab_header->record_size;
 	}
-	print_table_border(sorted_cd_entries, num_fields);
+	if (aggregate_type == 0) {
+		print_table_border(sorted_cd_entries, num_fields);
+	} else {
+		print_aggregate_result(aggregate_type, num_fields, aggregate_records_count, aggregate_int_sum, sorted_cd_entries);
+	}
 
-	// TODO: Support aggregated fields.
 	// TODO: Support WHERE.
 	// TODO: Support ORDER_BY.
 	free(tab_header);
@@ -1447,13 +1515,6 @@ int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num
 	return cur_offset_in_record;
 }
 
-bool can_be_identifier(token_list *token) {
-	// Any keyword and type name can also be a valid identifier.
-	return (token->tok_class == TOKEN_CLASS_KEYWORD) ||
-		(token->tok_class != TOKEN_CLASS_IDENTIFIER) ||
-		(token->tok_class != TOKEN_CLASS_TYPE_NAME);
-}
-
 int fill_field_values(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[]) {
 	int offset_in_record = 0;
 	unsigned char value_length = 0;
@@ -1490,9 +1551,7 @@ void print_table_border(cd_entry *cd_entries[], int num_values) {
 	for(int i = 0; i < num_values; i++) {
 		printf("+");
 		col_width = column_display_width(cd_entries[i]);
-		for (int j = 0 ; j < col_width + 2; j++) {
-			printf("-");
-		}
+		repeat_print_char('-', col_width + 2);
 	}
 	printf("+\n");
 }
@@ -1502,9 +1561,7 @@ void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], 
 	for (int i = 0; i < num_values; i++) {
 		printf("%c %s", '|', field_names[i].name);
 		col_gap = column_display_width(cd_entries[i]) - strlen(cd_entries[i]->col_name) + 1;
-		for (int j = 0; j < col_gap; j++) {
-			printf(" ");
-		}
+		repeat_print_char(' ', col_gap);
 	}
 	printf("%c\n", '|');
 }
@@ -1535,19 +1592,71 @@ void print_table_row(cd_entry *sorted_cd_entries[], int num_cols, field_value fi
 		}
 		printf("%c %s", '|', display_value);
 		col_gap = column_display_width(sorted_cd_entries[i]) - strlen(display_value) + 1;
-		for (int j = 0; j < col_gap; j++) {
-			printf(" ");
-		}
+		repeat_print_char(' ', col_gap);
 	}
 	printf("%c\n", '|');
 }
 
 int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name) {
 	for (int i = 0; i < num_cols; i++) {
-		// TODO: Is column name case sensitive?
+		// Column names are case sensitive.
 		if (strcmp(cd_entries[i].col_name, col_name) == 0) {
 			return i;
 		}
 	}
 	return -1;
+}
+
+void print_aggregate_result(int aggregate_type, int num_fields, int records_count, int int_sum, cd_entry* sorted_cd_entries[]) {
+	char display_value[MAX_STRING_LEN+1];
+	memset(display_value, '\0', sizeof(display_value));
+	if (aggregate_type == F_SUM) {
+		sprintf(display_value, "%d", int_sum);
+	} else if (aggregate_type == F_AVG) {
+		if (records_count == 0) {
+			// Divided by zero error, show as NaN (i.e. Not-a-number).
+			sprintf(display_value, "NaN");
+		} else {
+			sprintf(display_value, "%d", int_sum / records_count);
+		}
+	} else if (aggregate_type == F_COUNT) {
+		sprintf(display_value, "%d", records_count);
+	}
+
+	char display_title[MAX_STRING_LEN+1];
+	memset(display_title, '\0', sizeof(display_title));
+	if (num_fields == 1) {
+		// Aggregate on one column.
+		if (aggregate_type == F_SUM) {
+			sprintf(display_title, "SUM(%s)", sorted_cd_entries[0]->col_name);
+		} else if (aggregate_type == F_AVG) {
+			sprintf(display_title, "AVG(%s)", sorted_cd_entries[0]->col_name);
+		} else { // F_COUNT
+			sprintf(display_title, "COUNT(%s)", sorted_cd_entries[0]->col_name);
+		}
+	} else {
+		// Aggregate on one column.
+		sprintf(display_title, "COUNT(*)");
+	}
+
+	int display_width = (strlen(display_value) > strlen(display_title)) ? strlen(display_value) : strlen(display_title);
+	printf("+");
+	repeat_print_char('-', display_width + 2);
+	printf("+\n");
+
+	printf("| %s ", display_title);
+	repeat_print_char(' ', display_width - strlen(display_title));
+	printf("|\n");
+
+	printf("+");
+	repeat_print_char('-', display_width + 2);
+	printf("+\n");
+
+	printf("| %s ", display_value);
+	repeat_print_char(' ', display_width - strlen(display_value));
+	printf("|\n");
+
+	printf("+");
+	repeat_print_char('-', display_width + 2);
+	printf("+\n");
 }
