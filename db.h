@@ -11,6 +11,7 @@ prototype for the db.exe program.
 #define MAX_IDENT_LEN 16
 #define MAX_STRING_LEN 255
 #define MAX_NUM_COL 16
+#define MAX_NUM_ROW 1000
 #define MAX_TOK_LEN 32
 #define KEYWORD_OFFSET 10
 #define STRING_BREAK " (),<>="
@@ -196,6 +197,12 @@ typedef struct field_name_def {
 	token_list *linked_token; // Point to the original token.
 } field_name;
 
+/* One row as a record of DB */
+typedef struct record_row_def {
+	int num_fields;
+	field_value *value_ptrs[MAX_NUM_COL];
+} record_row;
+
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
@@ -217,11 +224,11 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry col
 void free_token_list(token_list* const t_list);
 int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
 int get_file_size(FILE *fhandle);
-int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes);
-int fill_field_values(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[]);
+int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes);
+int fill_record_row(cd_entry col_desc_entries[], record_row *p_row, int num_values, char record_bytes[]);
 void print_table_border(cd_entry *cd_entries[], int num_values);
 void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], int num_values);
-void print_table_row(cd_entry *sorted_cd_entries[], int num_cols, field_value field_values[], int num_values);
+void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *row);
 void print_aggregate_result(int aggregate_type, int num_fields, int records_count, int int_sum, cd_entry* sorted_cd_entries[]);
 int column_display_width(cd_entry *col_entry);
 int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name);

@@ -1117,7 +1117,7 @@ int sem_insert(token_list *t_list) {
 	// The maximum possible length of each field is 1 (for the data length) + 255 (a string of 255 characters) = 256.
 	// For x86 and x64 machines, the default stack size is 1 MB, so it is safe to have 16 * 256 = 4K memory in stack for the new record.
 	char record_bytes[MAX_NUM_COL * (1 + MAX_STRING_LEN)];
-	fill_record(col_desc_entries, field_values, num_values, record_bytes, sizeof(record_bytes));
+	fill_raw_record_bytes(col_desc_entries, field_values, num_values, record_bytes, sizeof(record_bytes));
 
 	char table_filename[MAX_IDENT_LEN + 5];
 	sprintf(table_filename, "%s.tab", table_header->tpd_ptr->table_name);
@@ -1289,49 +1289,51 @@ int sem_select(token_list *t_list) {
 		return rc;
 	}
 
-	// Print columns header.
-	if (aggregate_type == 0) {
-		print_table_border(sorted_cd_entries, num_fields);
-		print_table_column_names(sorted_cd_entries, field_names, num_fields);
-		print_table_border(sorted_cd_entries, num_fields);
-	}
-
-	// Print records in rows.
+	// Load record rows.
 	char *record_in_table = NULL;
 	get_table_records(tab_header, &record_in_table);
-	field_value field_values[MAX_NUM_COL];
 	int aggregate_int_sum = 0;
-	int records_count = 0;
+	int num_loaded_records = 0;
 	int aggregate_records_count = 0;
+
+	record_row record_rows[MAX_NUM_ROW];
+	memset(record_rows, '\0', sizeof(record_rows));
+	record_row *p_current_row = NULL;
 	for(int i = 0; i < tab_header->num_records; i++) {
 		// Fill all field values (not only displayed columns) from current record.
-		memset(field_values, '\0', sizeof(field_values));
-		fill_field_values(cd_entries, field_values, tab_entry->num_columns, record_in_table);
+		p_current_row = &record_rows[num_loaded_records];
+		fill_record_row(cd_entries, p_current_row, tab_entry->num_columns, record_in_table);
+		num_loaded_records++;
+
 		if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
 			// SUM(col) or AVG(col), ignore NULL rows.
-			if (!field_values[sorted_cd_entries[0]->col_id].is_null) {
-				aggregate_int_sum += field_values[sorted_cd_entries[0]->col_id].int_value;
+			if (!p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->is_null) {
+				aggregate_int_sum += p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->int_value;
 				aggregate_records_count++;
 			}
 		} else if (aggregate_type == F_COUNT) {
 			if (num_fields == 1) {
 				// count(col), ignore NULL rows.
-				if (!field_values[sorted_cd_entries[0]->col_id].is_null) {
+				if (!p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->is_null) {
 					aggregate_records_count++;
 				}
 			} else {
 				// count(*), include NULL rows.
 				aggregate_records_count++;
 			}
-		} else {
-			// No aggregate function. Just print raw record.
-			print_table_row(sorted_cd_entries, num_fields, field_values, tab_entry->num_columns);
 		}
-		records_count++;
+		
 		// Move forward to next record.
 		record_in_table += tab_header->record_size;
 	}
 	if (aggregate_type == 0) {
+		// Print all records.
+		print_table_border(sorted_cd_entries, num_fields);
+		print_table_column_names(sorted_cd_entries, field_names, num_fields);
+		print_table_border(sorted_cd_entries, num_fields);
+		for (int i = 0; i < num_loaded_records; i++) {
+			print_record_row(sorted_cd_entries, num_fields, &record_rows[i]);
+		}
 		print_table_border(sorted_cd_entries, num_fields);
 	} else {
 		print_aggregate_result(aggregate_type, num_fields, aggregate_records_count, aggregate_int_sum, sorted_cd_entries);
@@ -1339,7 +1341,14 @@ int sem_select(token_list *t_list) {
 
 	// TODO: Support WHERE.
 	// TODO: Support ORDER_BY.
+
+	// Clean allocated heap memory.
 	free(tab_header);
+	for(int i = 0; i < num_loaded_records; i++) {
+		for(int j = 0; j < record_rows[i].num_fields; j++) {
+			free(record_rows[i].value_ptrs[j]);
+		}
+	}
 	return rc;
 }
 
@@ -1471,7 +1480,7 @@ int get_file_size(FILE *fhandle) {
 	return (int)(file_stat.st_size);
 }
 
-int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes) {
+int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes) {
 	memset(record_bytes, '\0', num_record_bytes);
 	unsigned char value_length = 0;
 	int cur_offset_in_record = 0;
@@ -1515,32 +1524,36 @@ int fill_record(cd_entry col_desc_entries[], field_value field_values[], int num
 	return cur_offset_in_record;
 }
 
-int fill_field_values(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[]) {
+int fill_record_row(cd_entry col_desc_entries[], record_row *p_row, int num_values, char record_bytes[]) {
 	int offset_in_record = 0;
 	unsigned char value_length = 0;
+	field_value *p_field_value = NULL;
+	p_row->num_fields = num_values;
 	for (int i = 0; i < num_values; i++) {
 		// Get value length.
 		memcpy(&value_length, record_bytes + offset_in_record, 1);
 		offset_in_record += 1;
 
 		// Get field value.
-		field_values[i].col_id = col_desc_entries[i].col_id;
-		field_values[i].is_null = (value_length == 0);
-		field_values[i].linked_token = NULL;
+		p_field_value = (field_value *) malloc(sizeof(field_value));
+		p_field_value->col_id = col_desc_entries[i].col_id;
+		p_field_value->is_null = (value_length == 0);
+		p_field_value->linked_token = NULL;
 		if (col_desc_entries[i].col_type == T_INT) {
 			// Set an integer.
-			field_values[i].type = FieldValueType::INT;
-			if (!field_values[i].is_null) {
-				memcpy(&field_values[i].int_value, record_bytes + offset_in_record, value_length);
+			p_field_value->type = FieldValueType::INT;
+			if (!p_field_value->is_null) {
+				memcpy(&p_field_value->int_value, record_bytes + offset_in_record, value_length);
 			}
 		} else {
 			// Set a string.
-			field_values[i].type = FieldValueType::STRING;
-			if (!field_values[i].is_null) {
-				memcpy(field_values[i].string_value, record_bytes + offset_in_record, value_length);
-				field_values[i].string_value[value_length] = '\0';
+			p_field_value->type = FieldValueType::STRING;
+			if (!p_field_value->is_null) {
+				memcpy(p_field_value->string_value, record_bytes + offset_in_record, value_length);
+				p_field_value->string_value[value_length] = '\0';
 			}
 		}
+		p_row->value_ptrs[i] = p_field_value;
 		offset_in_record += col_desc_entries[i].col_len;
 	}
 	return offset_in_record;
@@ -1575,17 +1588,18 @@ int column_display_width(cd_entry *col_entry) {
 	}
 }
 
-void print_table_row(cd_entry *sorted_cd_entries[], int num_cols, field_value field_values[], int num_values) {
+void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *row) {
 	int col_gap = 0;
 	char display_value[MAX_STRING_LEN+1];
 	int col_index = -1;
+	field_value **field_values = row->value_ptrs;
 	for (int i = 0; i < num_cols; i++) {
 		col_index = sorted_cd_entries[i]->col_id;
-		if (!field_values[col_index].is_null) {
-			if (field_values[col_index].type == FieldValueType::INT) {
-				sprintf(display_value, "%d", field_values[col_index].int_value);
+		if (!field_values[col_index]->is_null) {
+			if (field_values[col_index]->type == FieldValueType::INT) {
+				sprintf(display_value, "%d", field_values[col_index]->int_value);
 			} else {
-				strcpy(display_value, field_values[col_index].string_value);
+				strcpy(display_value, field_values[col_index]->string_value);
 			}
 		} else {
 			display_value[0] = '\0';
