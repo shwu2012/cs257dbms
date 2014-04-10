@@ -1749,10 +1749,13 @@ void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *r
 	char display_value[MAX_STRING_LEN+1];
 	int col_index = -1;
 	field_value **field_values = row->value_ptrs;
+	bool left_align = true;
 	for (int i = 0; i < num_cols; i++) {
 		col_index = sorted_cd_entries[i]->col_id;
+		left_align = true;
 		if (!field_values[col_index]->is_null) {
 			if (field_values[col_index]->type == FieldValueType::INT) {
+				left_align = false;
 				sprintf(display_value, "%d", field_values[col_index]->int_value);
 			} else {
 				strcpy(display_value, field_values[col_index]->string_value);
@@ -1760,9 +1763,15 @@ void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *r
 		} else {
 			display_value[0] = '\0';
 		}
-		printf("%c %s", '|', display_value);
 		col_gap = column_display_width(sorted_cd_entries[i]) - strlen(display_value) + 1;
-		repeat_print_char(' ', col_gap);
+		if (left_align) {
+			printf("| %s", display_value);
+			repeat_print_char(' ', col_gap);
+		} else {
+			printf("|");
+			repeat_print_char(' ', col_gap);
+			printf("%s ", display_value);
+		}
 	}
 	printf("%c\n", '|');
 }
