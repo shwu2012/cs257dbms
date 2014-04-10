@@ -6,13 +6,17 @@ Project#1:	CLP & DDL
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <search.h>
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
+/* Static functions declaration */
+static int records_comparator(const void *arg1, const void *arg2);
+
 int main(int argc, char** argv) {
 	int rc = 0;
-	token_list *tok_list=NULL, *tok_ptr=NULL;
+	token_list *tok_list = NULL, *tok_ptr = NULL;
 
 	if ((argc != 2) || (strlen(argv[1]) == 0)) {
 		printf("Usage: db \"command statement\"");
@@ -1369,6 +1373,34 @@ int sem_select(token_list *t_list) {
 		cur = cur->next;
 	}
 	
+	// Parse ORDER BY clause
+	bool has_order_by_clause = false;
+	bool order_by_desc = false;
+	int order_by_column_id = -1;
+
+	if (cur->tok_value == K_ORDER && cur->next->tok_value == K_BY) {
+		cur = cur->next->next;
+		if (can_be_identifier(cur)) {
+			order_by_column_id = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+			if (order_by_column_id > -1) {
+				has_order_by_clause = true;
+				cur = cur->next;
+				if (cur->tok_value == K_DESC) {
+					order_by_desc = true;
+					cur = cur->next;
+				}
+			} else {
+				rc = INVALID_COLUMN_NAME;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		} else {
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+	}
+
 	if (cur->tok_value != EOC) {
 		rc = INVALID_STATEMENT;
 		cur->tok_value = INVALID;
@@ -1429,19 +1461,24 @@ int sem_select(token_list *t_list) {
 		record_in_table += tab_header->record_size;
 	}
 	if (aggregate_type == 0) {
-		// Print all records.
 		print_table_border(sorted_cd_entries, num_fields);
 		print_table_column_names(sorted_cd_entries, field_names, num_fields);
 		print_table_border(sorted_cd_entries, num_fields);
+
+		// Sort records if necessary.
+		if (has_order_by_clause) {
+			sort_records(record_rows, num_loaded_records, &cd_entries[order_by_column_id], order_by_desc);
+		}
+
+		// Print all sorted records.
 		for (int i = 0; i < num_loaded_records; i++) {
 			print_record_row(sorted_cd_entries, num_fields, &record_rows[i]);
 		}
 		print_table_border(sorted_cd_entries, num_fields);
 	} else {
+		// Aggregate result is shown as a 1x1 table.
 		print_aggregate_result(aggregate_type, num_fields, aggregate_records_count, aggregate_int_sum, sorted_cd_entries);
 	}
-
-	// TODO: Support ORDER_BY.
 
 	// Clean allocated heap memory.
 	free(tab_header);
@@ -1865,6 +1902,67 @@ bool eval_condition(record_condition *p_condition, field_value *p_field_value) {
 		// Return true for unknown relational operators.
 		printf("[warning] unknown relational operator: %d\n", p_condition->op_type);
 		result = true;
+	}
+	return result;
+}
+
+void sort_records(record_row rows[], int num_records, cd_entry *p_sorting_col, bool is_desc) {
+	for(int i = 0; i < num_records; i++) {
+		rows[i].sorting_col_id = p_sorting_col->col_id;
+	}
+	qsort(rows, num_records, sizeof(record_row), records_comparator);
+	record_row temp_record;
+	if (is_desc) {
+		for (int i = 0; i < num_records / 2; i++) {
+			// temp_record := rows[i];
+			memcpy(&temp_record, &rows[i], sizeof(record_row));
+			// rows[i] := rows[num_records - 1 - i];
+			memcpy(&rows[i], &rows[num_records - 1 - i], sizeof(record_row));
+			// rows[num_records - 1 - i] := temp_record;
+			memcpy(&rows[num_records - 1 - i], &temp_record, sizeof(record_row));
+		}
+	}
+}
+
+static int records_comparator(const void *arg1, const void *arg2) {
+	record_row *p_record1 = (record_row *) arg1;
+	record_row *p_record2 = (record_row *) arg2;
+	int sorting_col_id = p_record1->sorting_col_id;
+
+	// If result < 0, elem1 less than elem2;
+    // If result = 0, elem1 equivalent to elem2;
+    // If result > 0, elem1 greater than elem2.
+	int result = 0;
+	field_value *p_value1 = p_record1->value_ptrs[sorting_col_id];
+	field_value *p_value2 = p_record2->value_ptrs[sorting_col_id];
+	if (p_value1->type == FieldValueType::INT) {
+		// Compare 2 integers.
+		// NULL is smaller than any other values.
+		if (p_value1->is_null) {
+			result = (p_value2->is_null ? 0 : -1);
+		} else {
+			if (p_value2->is_null) {
+				result = 1;
+			} else if (p_value1->int_value < p_value2->int_value) {
+				result = -1;
+			} else if (p_value1->int_value > p_value2->int_value) {
+				result = 1;
+			} else {
+				result = 0;
+			}
+		}
+	} else {
+		// Compare 2 strings.
+		// NULL is smaller than any other values.
+		if (p_value1->is_null) {
+			result = (p_value2->is_null ? 0 : -1);
+		} else {
+			if (p_value2->is_null) {
+				result = 1;
+			} else {
+				result = strcmp(p_value1->string_value, p_value2->string_value);
+			}
+		}
 	}
 	return result;
 }
