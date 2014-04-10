@@ -164,6 +164,7 @@ typedef enum return_codes_def {
 	INVALID_AGGREGATE_COLUMN, // -385
 	INVALID_CONDITION, // -384
 	INVALID_CONDITION_OPERAND, // -383
+	MAX_ROW_EXCEEDED, // -382
 	/* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299, // -299
 	DBFILE_CORRUPTION, // -298

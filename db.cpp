@@ -376,6 +376,13 @@ int sem_create_table(token_list *t_list) {
 				/* Now build a set of column entries */
 				cur = cur->next;
 				do {
+					// Check if columns count is greater than MAX_NUM_COL.
+					if (cur_id >= MAX_NUM_COL) {
+						rc = MAX_COLUMN_EXCEEDED;
+						cur->tok_value = INVALID;
+						return rc;
+					}
+
 					if (!can_be_identifier(cur)) {
 						// Error
 						rc = INVALID_COLUMN_NAME;
@@ -1056,7 +1063,13 @@ int sem_insert(token_list *t_list) {
 	memset(field_values, '\0', sizeof(field_values));
 	int num_values = 0;
 	while (!values_done) {
-		// TODO: Check if values_count is greater than MAX_NUM_COL.
+		// Check if values count is greater than MAX_NUM_COL.
+		if (num_values >= MAX_NUM_COL) {
+			rc = MAX_COLUMN_EXCEEDED;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+
 		if (cur->tok_value == STRING_LITERAL) {
 			field_values[num_values].type = FieldValueType::STRING;
 			field_values[num_values].is_null = false;
@@ -1120,6 +1133,12 @@ int sem_insert(token_list *t_list) {
 		return rc;
 	}
 
+	if (table_header->num_records >= MAX_NUM_ROW) {
+		rc = MAX_ROW_EXCEEDED;
+		free(table_header);
+		return rc;
+	}
+
 	// Compose the new record.
 	// The maximum possible length of each field is 1 (for the data length) + 255 (a string of 255 characters) = 256.
 	// For x86 and x64 machines, the default stack size is 1 MB, so it is safe to have 16 * 256 = 4K memory in stack for the new record.
@@ -1132,7 +1151,6 @@ int sem_insert(token_list *t_list) {
 	if((fhandle = fopen(table_filename, "wbc")) == NULL) {
 		rc = FILE_OPEN_ERROR;
 		free(table_header);
-		cur->tok_value = INVALID;
 		return rc;
 	}
 
