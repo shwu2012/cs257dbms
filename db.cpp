@@ -36,10 +36,15 @@ int main(int argc, char** argv) {
 
 		// Show tokens for test purpose.
 		tok_ptr = tok_list;
+		printf("%16s %10s %10s\n", "Tokens: STRING", "CLASS", "VALUE");
+		repeat_print_char('-', 16 + 11 + 11);
+		printf("\n");
 		while (tok_ptr != NULL) {
-			printf("%16s \t%d \t %d\n", tok_ptr->tok_string, tok_ptr->tok_class, tok_ptr->tok_value);
+			printf("%16s %10d %10d\n", tok_ptr->tok_string, tok_ptr->tok_class, tok_ptr->tok_value);
 			tok_ptr = tok_ptr->next;
 		}
+		repeat_print_char('-', 16 + 11 + 11);
+		printf("\n\n");
 
 		if (!rc) {
 			rc = do_semantic(tok_list);
@@ -1119,9 +1124,10 @@ int sem_insert(token_list *t_list) {
 		return rc;
 	}
 
-	cd_entry *col_desc_entries = NULL;
-	get_cd_entries(tab_entry, &col_desc_entries);
-	rc = check_insert_values(field_values, num_values, col_desc_entries, tab_entry->num_columns);
+	cd_entry *cd_entries = NULL;
+	get_cd_entries(tab_entry, &cd_entries);
+	// The order and number of columns must be same for field_values and cd_entries.
+	rc = check_insert_values(field_values, num_values, cd_entries, tab_entry->num_columns);
 
 	if (rc) {
 		cur->tok_value = INVALID;
@@ -1147,7 +1153,11 @@ int sem_insert(token_list *t_list) {
 	// The maximum possible length of each field is 1 (for the data length) + 255 (a string of 255 characters) = 256.
 	// For x86 and x64 machines, the default stack size is 1 MB, so it is safe to have 16 * 256 = 4K memory in stack for the new record.
 	char record_bytes[MAX_NUM_COL * (1 + MAX_STRING_LEN)];
-	fill_raw_record_bytes(col_desc_entries, field_values, num_values, record_bytes, sizeof(record_bytes));
+	field_value *field_value_ptrs[MAX_NUM_COL];
+	for (int i = 0; i < num_values; i++) {
+		field_value_ptrs[i] = &field_values[i];
+	}
+	fill_raw_record_bytes(cd_entries, field_value_ptrs, num_values, record_bytes, sizeof(record_bytes));
 
 	char table_filename[MAX_IDENT_LEN + 5];
 	sprintf(table_filename, "%s.tab", table_header->tpd_ptr->table_name);
@@ -1429,6 +1439,8 @@ int sem_select(token_list *t_list) {
 		return rc;
 	}
 
+	// It is the heap memory owner of the content of the whole table.
+	// Do not forget to free it later.
 	table_file_header *tab_header = NULL;
 	if ((rc = load_table_records(tab_entry, &tab_header)) != 0) {
 		return rc;
@@ -1447,7 +1459,7 @@ int sem_select(token_list *t_list) {
 	for(int i = 0; i < tab_header->num_records; i++) {
 		// Fill all field values (not only displayed columns) from current record.
 		p_current_row = &record_rows[num_loaded_records];
-		fill_record_row(cd_entries, p_current_row, tab_entry->num_columns, record_in_table);
+		fill_record_row(cd_entries, tab_entry->num_columns, p_current_row, record_in_table);
 
 		// Do filtering on current record row.
 		if (has_where_clause && (!apply_row_predicate(cd_entries, tab_entry->num_columns, p_current_row, &row_filter))) {
@@ -1522,9 +1534,253 @@ int sem_delete(token_list *t_list) {
 
 int sem_update(token_list *t_list) {
 	int rc = 0;
-	//token_list *cur = t_list;
-	// TODO:
-	printf("unimplemented sem_update\n");
+	token_list *cur = t_list;
+	
+	if (!can_be_identifier(cur)) {
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Check whether the table name exists.
+	tpd_entry *tab_entry = get_tpd_from_list(cur->tok_string);
+	if (tab_entry == NULL) {
+		rc = TABLE_NOT_EXIST;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Get column descriptors.
+	cd_entry *cd_entries = NULL;
+	get_cd_entries(tab_entry, &cd_entries);
+
+	cur = cur->next;
+	if (cur->tok_value != K_SET) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Parse field name of the value to be updated.
+	cur = cur->next;
+	field_value value_to_update;
+	memset(&value_to_update, '\0', sizeof(value_to_update));
+	if (can_be_identifier(cur)) {
+		int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+		if (col_index > -1) {
+			value_to_update.col_id = col_index;
+			value_to_update.linked_token = cur;
+			value_to_update.type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+		} else {
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+	} else {
+		rc = INVALID_COLUMN_NAME;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	cur = cur->next;
+	if (cur->tok_value != S_EQUAL) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Parse field value of the value to be updated.
+	cur = cur->next;
+	if (cur->tok_value == STRING_LITERAL) {
+		if (value_to_update.type == FieldValueType::STRING) {
+			strcpy(value_to_update.string_value, cur->tok_string);
+			value_to_update.is_null = false;
+		} else {
+			rc = INVALID_VALUE;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+	} else if (cur->tok_value == INT_LITERAL) {
+		if (value_to_update.type == FieldValueType::INT) {
+			value_to_update.int_value = atoi(cur->tok_string);
+			value_to_update.is_null = false;
+		} else {
+			rc = INVALID_VALUE;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+	} else if (cur->tok_value == K_NULL) {
+		value_to_update.is_null = true;
+	} else {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	bool has_where_clause = false;
+	record_predicate row_filter;
+	memset(&row_filter, '\0', sizeof(row_filter));
+	// Parse WHERE clause.
+	cur = cur->next;
+	if (cur->tok_value == K_WHERE) {
+		has_where_clause = true;
+		row_filter.type = K_AND;
+		row_filter.num_conditions = 1;
+
+		// Parse name of the filtering column.
+		cur = cur->next;
+		if (can_be_identifier(cur)) {
+			int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+			if (col_index > -1) {
+				row_filter.conditions[0].col_id = col_index;
+				row_filter.conditions[0].value_type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+			} else {
+				rc = INVALID_COLUMN_NAME;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		} else {
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+
+		// Parse the operator and operand of the condition.
+		cur = cur->next;
+		if (cur->tok_value == S_LESS || cur->tok_value == S_GREATER || cur->tok_value == S_EQUAL) {
+			row_filter.conditions[0].op_type = cur->tok_value;
+			cur = cur->next;
+			if (cur->tok_value == INT_LITERAL) {
+				if (row_filter.conditions[0].value_type == FieldValueType::INT) {
+					row_filter.conditions[0].int_data_value = atoi(cur->tok_string);
+				} else {
+					rc = INVALID_CONDITION_OPERAND;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			} else if (cur->tok_value == STRING_LITERAL) {
+				if (row_filter.conditions[0].value_type == FieldValueType::STRING) {
+					strcpy(row_filter.conditions[0].string_data_value, cur->tok_string);
+				} else {
+					rc = INVALID_CONDITION_OPERAND;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			} else {
+				rc = INVALID_CONDITION;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		} else if (cur->tok_value == K_IS && cur->next->tok_value == K_NULL) { // "IS NULL"
+			cur = cur->next;
+			row_filter.conditions[0].op_type = K_IS;
+		} else if (cur->tok_value == K_IS && cur->next->tok_value == K_NOT && cur->next->next->tok_value == K_NULL) { // "IS NOT NULL"
+			cur = cur->next->next;
+			row_filter.conditions[0].op_type = K_NOT;
+		} else {
+			rc = INVALID_CONDITION;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+		cur = cur->next;
+	}
+	
+	if (cur->tok_value != EOC) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// It is the heap memory owner of the content of the whole table.
+	// Do not forget to free it later.
+	table_file_header *tab_header = NULL;
+	if ((rc = load_table_records(tab_entry, &tab_header)) != 0) {
+		return rc;
+	}
+
+	// Load record rows.
+	char *record_in_table = NULL;
+	get_table_records(tab_header, &record_in_table);
+	record_row record_rows[MAX_NUM_ROW];
+	memset(record_rows, '\0', sizeof(record_rows));
+	record_row *p_current_row = NULL;
+	int num_loaded_records = 0;
+	int num_affected_records = 0;
+	for (int i = 0; i < tab_header->num_records; i++) {
+		// Fill all field values (not only displayed columns) from current record.
+		p_current_row = &record_rows[num_loaded_records];
+		fill_record_row(cd_entries, tab_entry->num_columns, p_current_row, record_in_table);
+		num_loaded_records++;
+
+		// Update qualified records.
+		if ((!has_where_clause) || apply_row_predicate(cd_entries, tab_entry->num_columns, p_current_row, &row_filter)) {
+			// Only update the record if the value is really changed.
+			bool value_changed = false;
+			if (value_to_update.type == FieldValueType::INT) {
+				if (value_to_update.is_null) {
+					// Update NULL integer value.
+					if (!p_current_row->value_ptrs[value_to_update.col_id]->is_null) {
+						p_current_row->value_ptrs[value_to_update.col_id]->is_null = true;
+						p_current_row->value_ptrs[value_to_update.col_id]->int_value = 0;
+						value_changed = true;
+					}
+				} else {
+					// Update real integer value.
+					if (p_current_row->value_ptrs[value_to_update.col_id]->is_null || 
+						p_current_row->value_ptrs[value_to_update.col_id]->int_value != value_to_update.int_value) {
+							p_current_row->value_ptrs[value_to_update.col_id]->is_null = false;
+							p_current_row->value_ptrs[value_to_update.col_id]->int_value = value_to_update.int_value;
+							value_changed = true;
+					}
+				}
+			} else {
+				if (value_to_update.is_null) {
+					// Update NULL string value.
+					if (!p_current_row->value_ptrs[value_to_update.col_id]->is_null) {
+						p_current_row->value_ptrs[value_to_update.col_id]->is_null = true;
+						memset(p_current_row->value_ptrs[value_to_update.col_id]->string_value, '\0', MAX_STRING_LEN+1);
+						value_changed = true;
+					}
+				} else {
+					// Update real string value.
+					if (p_current_row->value_ptrs[value_to_update.col_id]->is_null ||
+						strcmp(p_current_row->value_ptrs[value_to_update.col_id]->string_value, value_to_update.string_value) == 0) {
+							p_current_row->value_ptrs[value_to_update.col_id]->is_null = false;
+							strcpy(p_current_row->value_ptrs[value_to_update.col_id]->string_value, value_to_update.string_value);
+							value_changed = true;
+					}
+				}
+			}
+			if (value_changed) {
+				fill_raw_record_bytes(cd_entries, p_current_row->value_ptrs, tab_entry->num_columns, record_in_table, tab_header->record_size);
+				num_affected_records++;
+			}
+		}
+
+		// Move forward to next record.
+		record_in_table += tab_header->record_size;
+	}
+
+	printf("Affected records: %d\n", num_affected_records);
+
+	/*
+	if (num_affected_records > 0) {
+		// Write records back to .tab file.
+		char table_filename[MAX_IDENT_LEN + 5];
+		sprintf(table_filename, "%s.tab", tab_header->tpd_ptr->table_name);
+		FILE *fhandle = NULL;
+		if((fhandle = fopen(table_filename, "wbc")) == NULL) {
+			rc = FILE_OPEN_ERROR;
+		} else {
+			tab_header->tpd_ptr = NULL; // Reset tpd pointer.
+			fwrite(tab_header, tab_header->file_size, 1, fhandle);
+			fflush(fhandle);
+			fclose(fhandle);
+		}
+	}
+	*/
+
+	free(tab_header);
 	return rc;
 }
 
@@ -1561,7 +1817,7 @@ int create_tab_file(char* table_name, cd_entry cd_entries[], int num_columns) {
 	return rc;
 }
 
-int check_insert_values(field_value field_values[], int num_values, cd_entry col_entry[], int num_columns) {
+int check_insert_values(field_value field_values[], int num_values, cd_entry cd_entries[], int num_columns) {
 	int rc = 0;
 	if (num_values != num_columns) {
 		return INVALID_VALUES_COUNT;
@@ -1570,12 +1826,12 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry col
 	for(int i = 0; i < num_values; i++) {
 		if (field_values[i].is_null) {
 			// Field value is NULL.
-			if (col_entry[i].col_type == T_INT) {
+			if (cd_entries[i].col_type == T_INT) {
 				field_values[i].type = FieldValueType::INT;
 			} else {
 				field_values[i].type = FieldValueType::STRING;
 			}
-			if (col_entry[i].not_null) {
+			if (cd_entries[i].not_null) {
 				field_values[i].linked_token->tok_value = INVALID;
 				rc = INVALID_VALUE;
 				break;
@@ -1583,13 +1839,13 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry col
 		} else {
 			// Field value is not NULL, so it must be either integer or string.
 			if (field_values[i].type == FieldValueType::INT) {
-				if (col_entry[i].col_type != T_INT) {
+				if (cd_entries[i].col_type != T_INT) {
 					field_values[i].linked_token->tok_value = INVALID;
 					rc = INVALID_VALUE;
 					break;
 				}
 			} else if (field_values[i].type == FieldValueType::STRING) {
-				if ((col_entry[i].col_type != T_CHAR) || (col_entry[i].col_len < (int)strlen(field_values[i].string_value))) {
+				if ((cd_entries[i].col_type != T_CHAR) || (cd_entries[i].col_len < (int)strlen(field_values[i].string_value))) {
 					field_values[i].linked_token->tok_value = INVALID;
 					rc = INVALID_VALUE;
 					break;
@@ -1640,23 +1896,23 @@ int get_file_size(FILE *fhandle) {
 	return (int)(file_stat.st_size);
 }
 
-int fill_raw_record_bytes(cd_entry cd_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes) {
+int fill_raw_record_bytes(cd_entry cd_entries[], field_value *field_values[], int num_cols, char record_bytes[], int num_record_bytes) {
 	memset(record_bytes, '\0', num_record_bytes);
 	unsigned char value_length = 0;
 	int cur_offset_in_record = 0;
 	int int_value = 0;
 	char *string_value = NULL;
-	for(int i = 0; i < num_values; i++) {
-		if (field_values[i].type == FieldValueType::INT) {
+	for(int i = 0; i < num_cols; i++) {
+		if (field_values[i]->type == FieldValueType::INT) {
 			// Store a integer.
-			if (field_values[i].is_null) {
+			if (field_values[i]->is_null) {
 				// Null value.
 				value_length = 0;
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
 				cur_offset_in_record += (1 + cd_entries[i].col_len);
 			} else {
 				// Integer value.
-				int_value = field_values[i].int_value;
+				int_value = field_values[i]->int_value;
 				value_length = cd_entries[i].col_len;
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
 				cur_offset_in_record += 1;
@@ -1665,14 +1921,14 @@ int fill_raw_record_bytes(cd_entry cd_entries[], field_value field_values[], int
 			}
 		} else {
 			// Store a string.
-			if (field_values[i].is_null) {
+			if (field_values[i]->is_null) {
 				// Null value.
 				value_length = 0;
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
 				cur_offset_in_record += (1 + cd_entries[i].col_len);
 			} else {
 				// String value.
-				string_value = field_values[i].string_value;
+				string_value = field_values[i]->string_value;
 				value_length = strlen(string_value);
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
 				cur_offset_in_record += 1;
@@ -1684,12 +1940,12 @@ int fill_raw_record_bytes(cd_entry cd_entries[], field_value field_values[], int
 	return cur_offset_in_record;
 }
 
-int fill_record_row(cd_entry cd_entries[], record_row *p_row, int num_values, char record_bytes[]) {
+int fill_record_row(cd_entry cd_entries[], int num_cols, record_row *p_row, char record_bytes[]) {
 	int offset_in_record = 0;
 	unsigned char value_length = 0;
 	field_value *p_field_value = NULL;
-	p_row->num_fields = num_values;
-	for (int i = 0; i < num_values; i++) {
+	p_row->num_fields = num_cols;
+	for (int i = 0; i < num_cols; i++) {
 		// Get value length.
 		memcpy(&value_length, record_bytes + offset_in_record, 1);
 		offset_in_record += 1;
