@@ -2,6 +2,10 @@
 Project#1:	CLP & DDL
 ************************************************************/
 
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "db.h"
 #include <stdio.h>
 #include <string.h>
@@ -1524,13 +1528,13 @@ int sem_update(token_list *t_list) {
 	return rc;
 }
 
-int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns) {
+int create_tab_file(char* table_name, cd_entry cd_entries[], int num_columns) {
 	int rc = 0;
 	table_file_header tab_header;
 
 	int record_size = 0;
 	for (int i = 0; i < num_columns; i++) {
-		record_size += (1 + col_entry[i].col_len);
+		record_size += (1 + cd_entries[i].col_len);
 	}
 	// The total record_size must be rounded to a 4-byte boundary.
 	record_size = round_integer(record_size, 4);

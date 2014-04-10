@@ -240,7 +240,7 @@ int initialize_tpd_list();
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry* get_tpd_from_list(char *tabname);
-int create_tab_file(char* table_name, cd_entry* col_entry, int num_columns);
+int create_tab_file(char* table_name, cd_entry cd_entries[], int num_columns);
 int check_insert_values(field_value field_values[], int num_values, cd_entry col_entry[], int num_columns);
 void free_token_list(token_list* const t_list);
 int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
