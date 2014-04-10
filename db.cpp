@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
 	} else {
 		rc = get_token(argv[1], &tok_list);
 
-		/* Test code */
+		// Show tokens for test purpose.
 		tok_ptr = tok_list;
 		while (tok_ptr != NULL) {
 			printf("%16s \t%d \t %d\n", tok_ptr->tok_string, tok_ptr->tok_class, tok_ptr->tok_value);
@@ -57,6 +57,9 @@ int main(int argc, char** argv) {
 	if (g_tpd_list) {
 		free(g_tpd_list);
 	}
+
+	printf("\nReturn code: %d. Press ENTER to exit.\n", rc);
+	getchar();
 
 	return rc;
 }
@@ -1226,10 +1229,10 @@ int sem_select(token_list *t_list) {
 
 	cur = cur->next;
 	if (!can_be_identifier(cur)) {
-			// Error
-			rc = INVALID_TABLE_NAME;
-			cur->tok_value = INVALID;
-			return rc;
+		// Error
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+		return rc;
 	}
 
 	// Check whether the table name exists.
@@ -1240,6 +1243,7 @@ int sem_select(token_list *t_list) {
 		return rc;
 	}
 
+	// Get column descriptors.
 	cd_entry *cd_entries = NULL;
 	get_cd_entries(tab_entry, &cd_entries);
 
@@ -1277,7 +1281,94 @@ int sem_select(token_list *t_list) {
 		}
 	}
 
+	bool has_where_clause = false;
+	record_predicate row_filter;
+	memset(&row_filter, '\0', sizeof(record_predicate));
+	row_filter.type = K_AND; // Set default relationship of conditions.
+
 	cur = cur->next;
+	// Parse optional WHERE clause.
+	if (cur->tok_value == K_WHERE) {
+		has_where_clause = true;
+
+		int col_index = -1;
+		int num_conditions = 0;
+		bool has_more_condition = true;
+
+		while(has_more_condition) {
+			// Read column name.
+			cur = cur->next;
+			if (can_be_identifier(cur)) {
+				col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+				if (col_index > -1) {
+					row_filter.conditions[num_conditions].col_id = col_index;
+					row_filter.conditions[num_conditions].value_type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+				} else {
+					rc = INVALID_COLUMN_NAME;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			} else {
+				rc = INVALID_COLUMN_NAME;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+
+			// Read relational operator of first condition.
+			cur = cur->next;
+			if (cur->tok_value == S_LESS || cur->tok_value == S_GREATER || cur->tok_value == S_EQUAL) {
+				row_filter.conditions[num_conditions].op_type = cur->tok_value;
+				cur = cur->next;
+				if (cur->tok_value == INT_LITERAL) {
+					if (row_filter.conditions[num_conditions].value_type == FieldValueType::INT) {
+						row_filter.conditions[num_conditions].int_data_value = atoi(cur->tok_string);
+					} else {
+						rc = INVALID_CONDITION_OPERAND;
+						cur->tok_value = INVALID;
+						return rc;
+					}
+				} else if (cur->tok_value == STRING_LITERAL) {
+					if (row_filter.conditions[num_conditions].value_type == FieldValueType::STRING) {
+						strcpy(row_filter.conditions[num_conditions].string_data_value, cur->tok_string);
+					} else {
+						rc = INVALID_CONDITION_OPERAND;
+						cur->tok_value = INVALID;
+						return rc;
+					}
+				} else {
+					rc = INVALID_CONDITION;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			} else if (cur->tok_value == K_IS && cur->next->tok_value == K_NULL) { // "IS NULL"
+				cur = cur->next;
+				row_filter.conditions[num_conditions].op_type = K_IS;
+			} else if (cur->tok_value == K_IS && cur->next->tok_value == K_NOT && cur->next->next->tok_value == K_NULL) { // "IS NOT NULL"
+				cur = cur->next->next;
+				row_filter.conditions[num_conditions].op_type = K_NOT;
+			} else {
+				rc = INVALID_CONDITION;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+			num_conditions++;
+			row_filter.num_conditions = num_conditions;
+
+			if (num_conditions == MAX_NUM_CONDITION) {
+				break;
+			}
+
+			if (cur->next->tok_value == K_AND || cur->next->tok_value == K_OR) {
+				cur = cur->next;
+				has_more_condition = true;
+				row_filter.type = cur->tok_value;
+			} else {
+				has_more_condition = false;
+			}
+		} // End of while.
+		cur = cur->next;
+	}
+	
 	if (cur->tok_value != EOC) {
 		rc = INVALID_STATEMENT;
 		cur->tok_value = INVALID;
@@ -1303,26 +1394,37 @@ int sem_select(token_list *t_list) {
 		// Fill all field values (not only displayed columns) from current record.
 		p_current_row = &record_rows[num_loaded_records];
 		fill_record_row(cd_entries, p_current_row, tab_entry->num_columns, record_in_table);
-		num_loaded_records++;
 
-		if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
-			// SUM(col) or AVG(col), ignore NULL rows.
-			if (!p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->is_null) {
-				aggregate_int_sum += p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->int_value;
-				aggregate_records_count++;
+		// Do filtering on current record row.
+		if (has_where_clause && (!apply_row_predicate(cd_entries, tab_entry->num_columns, p_current_row, &row_filter))) {
+			// Current row is not qualified so should be skipped (i.e. will not be loaded in final result set).
+			for (int j = 0; j < p_current_row->num_fields; j++) {
+				free(p_current_row->value_ptrs[j]);
 			}
-		} else if (aggregate_type == F_COUNT) {
-			if (num_fields == 1) {
-				// count(col), ignore NULL rows.
+			memset(p_current_row, '\0', sizeof(record_row));
+		} else {
+			/* Current row survives. */
+			num_loaded_records++;
+
+			if ((aggregate_type == F_SUM) || (aggregate_type == F_AVG)) {
+				// SUM(col) or AVG(col), ignore NULL rows.
 				if (!p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->is_null) {
+					aggregate_int_sum += p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->int_value;
 					aggregate_records_count++;
 				}
-			} else {
-				// count(*), include NULL rows.
-				aggregate_records_count++;
+			} else if (aggregate_type == F_COUNT) {
+				if (num_fields == 1) {
+					// count(col), ignore NULL rows.
+					if (!p_current_row->value_ptrs[sorted_cd_entries[0]->col_id]->is_null) {
+						aggregate_records_count++;
+					}
+				} else {
+					// count(*), include NULL rows.
+					aggregate_records_count++;
+				}
 			}
 		}
-		
+
 		// Move forward to next record.
 		record_in_table += tab_header->record_size;
 	}
@@ -1339,7 +1441,6 @@ int sem_select(token_list *t_list) {
 		print_aggregate_result(aggregate_type, num_fields, aggregate_records_count, aggregate_int_sum, sorted_cd_entries);
 	}
 
-	// TODO: Support WHERE.
 	// TODO: Support ORDER_BY.
 
 	// Clean allocated heap memory.
@@ -1480,7 +1581,7 @@ int get_file_size(FILE *fhandle) {
 	return (int)(file_stat.st_size);
 }
 
-int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes) {
+int fill_raw_record_bytes(cd_entry cd_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes) {
 	memset(record_bytes, '\0', num_record_bytes);
 	unsigned char value_length = 0;
 	int cur_offset_in_record = 0;
@@ -1493,15 +1594,15 @@ int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[
 				// Null value.
 				value_length = 0;
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
-				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
+				cur_offset_in_record += (1 + cd_entries[i].col_len);
 			} else {
 				// Integer value.
 				int_value = field_values[i].int_value;
-				value_length = col_desc_entries[i].col_len;
+				value_length = cd_entries[i].col_len;
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
 				cur_offset_in_record += 1;
 				memcpy(record_bytes + cur_offset_in_record, &int_value, value_length);
-				cur_offset_in_record += col_desc_entries[i].col_len;
+				cur_offset_in_record += cd_entries[i].col_len;
 			}
 		} else {
 			// Store a string.
@@ -1509,7 +1610,7 @@ int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[
 				// Null value.
 				value_length = 0;
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
-				cur_offset_in_record += (1 + col_desc_entries[i].col_len);
+				cur_offset_in_record += (1 + cd_entries[i].col_len);
 			} else {
 				// String value.
 				string_value = field_values[i].string_value;
@@ -1517,14 +1618,14 @@ int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[
 				memcpy(record_bytes + cur_offset_in_record, &value_length, 1);
 				cur_offset_in_record += 1;
 				memcpy(record_bytes + cur_offset_in_record, string_value, strlen(string_value));
-				cur_offset_in_record += col_desc_entries[i].col_len;
+				cur_offset_in_record += cd_entries[i].col_len;
 			}
 		}
 	}
 	return cur_offset_in_record;
 }
 
-int fill_record_row(cd_entry col_desc_entries[], record_row *p_row, int num_values, char record_bytes[]) {
+int fill_record_row(cd_entry cd_entries[], record_row *p_row, int num_values, char record_bytes[]) {
 	int offset_in_record = 0;
 	unsigned char value_length = 0;
 	field_value *p_field_value = NULL;
@@ -1536,10 +1637,10 @@ int fill_record_row(cd_entry col_desc_entries[], record_row *p_row, int num_valu
 
 		// Get field value.
 		p_field_value = (field_value *) malloc(sizeof(field_value));
-		p_field_value->col_id = col_desc_entries[i].col_id;
+		p_field_value->col_id = cd_entries[i].col_id;
 		p_field_value->is_null = (value_length == 0);
 		p_field_value->linked_token = NULL;
-		if (col_desc_entries[i].col_type == T_INT) {
+		if (cd_entries[i].col_type == T_INT) {
 			// Set an integer.
 			p_field_value->type = FieldValueType::INT;
 			if (!p_field_value->is_null) {
@@ -1554,26 +1655,26 @@ int fill_record_row(cd_entry col_desc_entries[], record_row *p_row, int num_valu
 			}
 		}
 		p_row->value_ptrs[i] = p_field_value;
-		offset_in_record += col_desc_entries[i].col_len;
+		offset_in_record += cd_entries[i].col_len;
 	}
 	return offset_in_record;
 }
 
-void print_table_border(cd_entry *cd_entries[], int num_values) {
+void print_table_border(cd_entry *sorted_cd_entries[], int num_values) {
 	int col_width = 0;
 	for(int i = 0; i < num_values; i++) {
 		printf("+");
-		col_width = column_display_width(cd_entries[i]);
+		col_width = column_display_width(sorted_cd_entries[i]);
 		repeat_print_char('-', col_width + 2);
 	}
 	printf("+\n");
 }
 
-void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], int num_values) {
+void print_table_column_names(cd_entry *sorted_cd_entries[], field_name field_names[], int num_values) {
 	int col_gap = 0;
 	for (int i = 0; i < num_values; i++) {
 		printf("%c %s", '|', field_names[i].name);
-		col_gap = column_display_width(cd_entries[i]) - strlen(cd_entries[i]->col_name) + 1;
+		col_gap = column_display_width(sorted_cd_entries[i]) - strlen(sorted_cd_entries[i]->col_name) + 1;
 		repeat_print_char(' ', col_gap);
 	}
 	printf("%c\n", '|');
@@ -1611,7 +1712,7 @@ void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *r
 	printf("%c\n", '|');
 }
 
-int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name) {
+int get_cd_entry_index(cd_entry cd_entries[], int num_cols, char *col_name) {
 	for (int i = 0; i < num_cols; i++) {
 		// Column names are case sensitive.
 		if (strcmp(cd_entries[i].col_name, col_name) == 0) {
@@ -1673,4 +1774,97 @@ void print_aggregate_result(int aggregate_type, int num_fields, int records_coun
 	printf("+");
 	repeat_print_char('-', display_width + 2);
 	printf("+\n");
+}
+
+bool apply_row_predicate(cd_entry cd_entries[], int num_cols, record_row *p_row, record_predicate *p_predicate) {
+	if ((!p_predicate) || (p_predicate->num_conditions < 1)) {
+		return true;
+	}
+
+	// Evaluate the first condition.
+	field_value *lhs_operand = p_row->value_ptrs[p_predicate->conditions[0].col_id];
+	bool result = eval_condition(&p_predicate->conditions[0], lhs_operand);
+	if (p_predicate->num_conditions == 1) {
+		// Only one condition.
+		return result;
+	}
+
+	// Evaluate the second condition.
+	lhs_operand = p_row->value_ptrs[p_predicate->conditions[1].col_id];
+	if (p_predicate->type == K_AND) {
+		// AND conditions.
+		result = result && eval_condition(&p_predicate->conditions[1], lhs_operand);
+	} else {
+		// OR conditions.
+		result = result || eval_condition(&p_predicate->conditions[1], lhs_operand);
+	}
+
+	return result;
+}
+
+bool eval_condition(record_condition *p_condition, field_value *p_field_value) {
+	bool result = true;
+	switch (p_condition->op_type) {
+	case S_LESS:
+		// Operator "<"
+		if (p_condition->value_type == FieldValueType::INT) {
+			if (p_field_value->is_null) {
+				result = false;
+			} else {
+				result = (p_field_value->int_value < p_condition->int_data_value);
+			}
+		} else {
+			if (p_field_value->is_null) {
+				result = false;
+			} else {
+				result = (strcmp(p_field_value->string_value, p_condition->string_data_value) < 0);
+			}
+		}
+		break;
+	case S_EQUAL:
+		// Operator "="
+		if (p_condition->value_type == FieldValueType::INT) {
+			if (p_field_value->is_null) {
+				result = false;
+			} else {
+				result = (p_field_value->int_value == p_condition->int_data_value);
+			}
+		} else {
+			if (p_field_value->is_null) {
+				result = false;
+			} else {
+				result = (strcmp(p_field_value->string_value, p_condition->string_data_value) == 0);
+			}
+		}
+		break;
+	case S_GREATER:
+		// Operator ">"
+		if (p_condition->value_type == FieldValueType::INT) {
+			if (p_field_value->is_null) {
+				result = false;
+			} else {
+				result = (p_field_value->int_value > p_condition->int_data_value);
+			}
+		} else {
+			if (p_field_value->is_null) {
+				result = false;
+			} else {
+				result = (strcmp(p_field_value->string_value, p_condition->string_data_value) > 0);
+			}
+		}
+		break;
+	case K_IS:
+		// Operator "IS_NULL"
+		result = p_field_value->is_null;
+		break;
+	case K_NOT:
+		// Operator "IS_NOT_NULL"
+		result = !p_field_value->is_null;
+		break;
+	default:
+		// Return true for unknown relational operators.
+		printf("[warning] unknown relational operator: %d\n", p_condition->op_type);
+		result = true;
+	}
+	return result;
 }

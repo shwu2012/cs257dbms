@@ -12,7 +12,8 @@ prototype for the db.exe program.
 #define MAX_STRING_LEN 255
 #define MAX_NUM_COL 16
 #define MAX_NUM_ROW 1000
-#define MAX_TOK_LEN 32
+#define MAX_NUM_CONDITION 2
+#define MAX_TOK_LEN 256
 #define KEYWORD_OFFSET 10
 #define STRING_BREAK " (),<>="
 #define NUMBER_BREAK " ),"
@@ -161,6 +162,8 @@ typedef enum return_codes_def {
 	INVALID_VALUE, // -387
 	INVALID_VALUES_COUNT, // -386
 	INVALID_AGGREGATE_COLUMN, // -385
+	INVALID_CONDITION, // -384
+	INVALID_CONDITION_OPERAND, // -383
 	/* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299, // -299
 	DBFILE_CORRUPTION, // -298
@@ -203,6 +206,22 @@ typedef struct record_row_def {
 	field_value *value_ptrs[MAX_NUM_COL];
 } record_row;
 
+/* Condition in record-level predicate by WHERE clause. */
+typedef struct record_condition_def {
+	FieldValueType value_type; // Type of the field. It is available only the operator is in {S_LESS, S_GREATER, S_EQUAL}.
+	int col_id; // LHS operand.
+	int op_type; // Relational operator, can be S_LESS, S_GREATER, S_EQUAL, K_IS (used in "IS NULL"), or K_NOT (used in "IS NOT NULL").
+	int int_data_value; // RHS operand. It is available only if data type is integer and operator is in {S_LESS, S_GREATER, S_EQUAL}.
+	char string_data_value[MAX_STRING_LEN+1]; // RHS operand. It is available only if data type is string and operator is in {S_LESS, S_GREATER, S_EQUAL}.
+} record_condition;
+
+/* Record predicate represented as WHERE clause. */
+typedef struct record_predicate_def {
+	int type; // The relationship of conditions, can be K_AND or K_OR. Set as K_AND by default if there is only one condition.
+	int num_conditions;
+	record_condition conditions[MAX_NUM_CONDITION];
+} record_predicate;
+
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
@@ -224,14 +243,16 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry col
 void free_token_list(token_list* const t_list);
 int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header);
 int get_file_size(FILE *fhandle);
-int fill_raw_record_bytes(cd_entry col_desc_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes);
-int fill_record_row(cd_entry col_desc_entries[], record_row *p_row, int num_values, char record_bytes[]);
-void print_table_border(cd_entry *cd_entries[], int num_values);
-void print_table_column_names(cd_entry *cd_entries[], field_name field_names[], int num_values);
+int fill_raw_record_bytes(cd_entry cd_entries[], field_value field_values[], int num_values, char record_bytes[], int num_record_bytes);
+int fill_record_row(cd_entry cd_entries[], record_row *p_row, int num_values, char record_bytes[]);
+void print_table_border(cd_entry *sorted_cd_entries[], int num_values);
+void print_table_column_names(cd_entry *sorted_cd_entries[], field_name field_names[], int num_values);
 void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *row);
-void print_aggregate_result(int aggregate_type, int num_fields, int records_count, int int_sum, cd_entry* sorted_cd_entries[]);
+void print_aggregate_result(int aggregate_type, int num_fields, int records_count, int int_sum, cd_entry *sorted_cd_entries[]);
 int column_display_width(cd_entry *col_entry);
-int get_cd_entry_index(cd_entry *cd_entries, int num_cols, char *col_name);
+int get_cd_entry_index(cd_entry cd_entries[], int num_cols, char *col_name);
+bool apply_row_predicate(cd_entry cd_entries[], int num_cols, record_row *p_row, record_predicate *p_predicate);
+bool eval_condition(record_condition *p_condition, field_value *p_field_value);
 
 
 /* inline functions */
