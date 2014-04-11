@@ -1744,7 +1744,7 @@ int sem_update(token_list *t_list) {
 				} else {
 					// Update real string value.
 					if (p_current_row->value_ptrs[value_to_update.col_id]->is_null ||
-						strcmp(p_current_row->value_ptrs[value_to_update.col_id]->string_value, value_to_update.string_value) == 0) {
+						strcmp(p_current_row->value_ptrs[value_to_update.col_id]->string_value, value_to_update.string_value) != 0) {
 							p_current_row->value_ptrs[value_to_update.col_id]->is_null = false;
 							strcpy(p_current_row->value_ptrs[value_to_update.col_id]->string_value, value_to_update.string_value);
 							value_changed = true;
@@ -1763,7 +1763,6 @@ int sem_update(token_list *t_list) {
 
 	printf("Affected records: %d\n", num_affected_records);
 
-	/*
 	if (num_affected_records > 0) {
 		// Write records back to .tab file.
 		char table_filename[MAX_IDENT_LEN + 5];
@@ -1778,7 +1777,6 @@ int sem_update(token_list *t_list) {
 			fclose(fhandle);
 		}
 	}
-	*/
 
 	free(tab_header);
 	return rc;
