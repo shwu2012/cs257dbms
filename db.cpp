@@ -15,24 +15,29 @@ Project#1:	CLP & DDL
 #include <sys/stat.h>
 #include <sys/types.h>
 
-/* Static functions declaration */
-static int records_comparator(const void *arg1, const void *arg2);
 
 int main(int argc, char** argv) {
-	int rc = 0;
-	token_list *tok_list = NULL, *tok_ptr = NULL;
-
 	if ((argc != 2) || (strlen(argv[1]) == 0)) {
 		printf("Usage: db \"command statement\"");
 		return 1;
 	}
 
-	rc = initialize_tpd_list();
+	int rc = execute_statement(argv[1]);
+
+	printf("\nReturn code: %d. Press ENTER to exit.\n", rc);
+	getchar();
+
+	return rc;
+}
+
+int execute_statement(char *statement) {
+	token_list *tok_list = NULL, *tok_ptr = NULL;
+	int rc = initialize_tpd_list();
 
 	if (rc) {
 		printf("\nError in initialize_tpd_list().\nrc = %d\n", rc);
 	} else {
-		rc = get_token(argv[1], &tok_list);
+		rc = get_token(statement, &tok_list);
 
 		// Show tokens for test purpose.
 		tok_ptr = tok_list;
@@ -62,7 +67,7 @@ int main(int argc, char** argv) {
 			}
 		}
 
-		/* Whether the token list is valid or not, we need to free the memory */
+		// Whether the token list is valid or not, we need to free the memory.
 		free_token_list(tok_list);
 	}
 
@@ -70,9 +75,6 @@ int main(int argc, char** argv) {
 	if (g_tpd_list) {
 		free(g_tpd_list);
 	}
-
-	printf("\nReturn code: %d. Press ENTER to exit.\n", rc);
-	getchar();
 
 	return rc;
 }
@@ -319,7 +321,7 @@ int do_semantic(token_list *tok_list)
 	}
 
 	if (cur_cmd != INVALID_STATEMENT) {
-		switch(cur_cmd) {
+		switch (cur_cmd) {
 		case CREATE_TABLE:
 			rc = sem_create_table(cur);
 			break;
@@ -398,7 +400,7 @@ int sem_create_table(token_list *t_list) {
 						cur->tok_value = INVALID;
 					} else {
 						int i;
-						for(i = 0; i < cur_id; i++) {
+						for (i = 0; i < cur_id; i++) {
 							/* make column name case sensitive */
 							if (strcmp(col_entry[i].col_name, cur->tok_string) == 0) {
 								rc = DUPLICATE_COLUMN_NAME;
@@ -585,7 +587,7 @@ int sem_create_table(token_list *t_list) {
 						rc = add_tpd_to_list(new_entry);
 
 						// Create .tab file.
-						if(!rc){
+						if (!rc) {
 							rc = create_tab_file(tab_entry.table_name, col_entry, tab_entry.num_columns);
 							if (rc) {
 								cur->tok_value = INVALID;
@@ -673,8 +675,8 @@ int sem_list_schema(token_list *t_list)
 	token_list *cur;
 	tpd_entry *tab_entry = NULL;
 	cd_entry  *col_entry = NULL;
-	char tab_name[MAX_IDENT_LEN+1];
-	char filename[MAX_IDENT_LEN+1];
+	char tab_name[MAX_IDENT_LEN + 1];
+	char filename[MAX_IDENT_LEN + 1];
 	bool report = false;
 	FILE *fhandle = NULL;
 	int i = 0;
@@ -748,7 +750,7 @@ int sem_list_schema(token_list *t_list)
 				{
 					if (report)
 					{
-						if((fhandle = fopen(filename, "a+tc")) == NULL)
+						if ((fhandle = fopen(filename, "a+tc")) == NULL)
 						{
 							rc = FILE_OPEN_ERROR;
 						}
@@ -776,7 +778,7 @@ int sem_list_schema(token_list *t_list)
 
 						/* Next, write the cd_entry information */
 						get_cd_entries(tab_entry, &col_entry);
-						for(i = 0; i < tab_entry->num_columns; i++, col_entry++)
+						for (i = 0; i < tab_entry->num_columns; i++, col_entry++)
 						{
 							printf("Column Name   (col_name) = %s\n", col_entry->col_name);
 							printf("Column Id     (col_id)   = %d\n", col_entry->col_id);
@@ -814,10 +816,10 @@ int initialize_tpd_list()
 	FILE *fhandle = NULL;
 
 	/* Open for read */
-	if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
+	if ((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
 	{
 		// DB file "dbfile.bin" doesn't exist, so create it.
-		if((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
+		if ((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
 		{
 			rc = FILE_OPEN_ERROR;
 		}
@@ -872,7 +874,7 @@ int add_tpd_to_list(tpd_entry *tpd)
 	int old_size = 0;
 	FILE *fhandle = NULL;
 
-	if((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
+	if ((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
 	{
 		rc = FILE_OPEN_ERROR;
 	}
@@ -922,7 +924,7 @@ int drop_tpd_from_list(char *tabname)
 				int old_size = 0;
 				FILE *fhandle = NULL;
 
-				if((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
+				if ((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
 				{
 					rc = FILE_OPEN_ERROR;
 				}
@@ -1162,7 +1164,7 @@ int sem_insert(token_list *t_list) {
 	char table_filename[MAX_IDENT_LEN + 5];
 	sprintf(table_filename, "%s.tab", table_header->tpd_ptr->table_name);
 	FILE *fhandle = NULL;
-	if((fhandle = fopen(table_filename, "wbc")) == NULL) {
+	if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
 		rc = FILE_OPEN_ERROR;
 		free(table_header);
 		return rc;
@@ -1172,7 +1174,7 @@ int sem_insert(token_list *t_list) {
 	int old_table_file_size = table_header->file_size;
 	table_header->num_records++;
 	table_header->file_size += table_header->record_size;
-	table_header->tpd_ptr = NULL;
+	table_header->tpd_ptr = NULL; // Reset tpd pointer.
 
 	fwrite(table_header, old_table_file_size, 1, fhandle);
 	fwrite(record_bytes, table_header->record_size, 1, fhandle);
@@ -1221,7 +1223,7 @@ int sem_select(token_list *t_list) {
 	}
 	
 	// Extract field names. However, it will be skipped if the unique aggregate field is found.
-	while(!fields_done) {
+	while (!fields_done) {
 		if (!(can_be_identifier(cur) || cur->tok_value == S_STAR)) {
 				// Error column name.
 				rc = INVALID_COLUMN_NAME;
@@ -1287,7 +1289,7 @@ int sem_select(token_list *t_list) {
 	if (wildcard_field_index == 0) {
 		token_list *wildcard_token = field_names[wildcard_field_index].linked_token;
 		num_fields = tab_entry->num_columns;
-		for(int i = 0; i < num_fields; i++) {
+		for (int i = 0; i < num_fields; i++) {
 			strcpy(field_names[i].name, cd_entries[i].col_name);
 			field_names[i].linked_token = wildcard_token;
 		}
@@ -1295,7 +1297,7 @@ int sem_select(token_list *t_list) {
 
 	// Check if all field names exist in that table and generate sorted_cd_entries.
 	cd_entry *sorted_cd_entries[MAX_NUM_COL];
-	for(int i = 0; i < num_fields; i++) {
+	for (int i = 0; i < num_fields; i++) {
 		int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, field_names[i].name);
 		if (col_index < 0) {
 			rc = INVALID_COLUMN_NAME;
@@ -1331,7 +1333,7 @@ int sem_select(token_list *t_list) {
 		int num_conditions = 0;
 		bool has_more_condition = true;
 
-		while(has_more_condition) {
+		while (has_more_condition) {
 			// Read column name.
 			cur = cur->next;
 			if (can_be_identifier(cur)) {
@@ -1456,7 +1458,7 @@ int sem_select(token_list *t_list) {
 	record_row record_rows[MAX_NUM_ROW];
 	memset(record_rows, '\0', sizeof(record_rows));
 	record_row *p_current_row = NULL;
-	for(int i = 0; i < tab_header->num_records; i++) {
+	for (int i = 0; i < tab_header->num_records; i++) {
 		// Fill all field values (not only displayed columns) from current record.
 		p_current_row = &record_rows[num_loaded_records];
 		fill_record_row(cd_entries, tab_entry->num_columns, p_current_row, record_in_table);
@@ -1516,8 +1518,8 @@ int sem_select(token_list *t_list) {
 
 	// Clean allocated heap memory.
 	free(tab_header);
-	for(int i = 0; i < num_loaded_records; i++) {
-		for(int j = 0; j < record_rows[i].num_fields; j++) {
+	for (int i = 0; i < num_loaded_records; i++) {
+		for (int j = 0; j < record_rows[i].num_fields; j++) {
 			free(record_rows[i].value_ptrs[j]);
 		}
 	}
@@ -1526,9 +1528,157 @@ int sem_select(token_list *t_list) {
 
 int sem_delete(token_list *t_list) {
 	int rc = 0;
-	//token_list *cur = t_list;
-	// TODO:
-	printf("unimplemented sem_delete\n");
+	token_list *cur = t_list;
+
+	// Check table name.
+	if (!can_be_identifier(cur)) {
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Check whether the table name exists.
+	tpd_entry *tab_entry = get_tpd_from_list(cur->tok_string);
+	if (tab_entry == NULL) {
+		rc = TABLE_NOT_EXIST;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	// Get column descriptors.
+	cd_entry *cd_entries = NULL;
+	get_cd_entries(tab_entry, &cd_entries);
+
+	bool has_where_clause = false;
+	record_predicate row_filter;
+	memset(&row_filter, '\0', sizeof(row_filter));
+	// Parse WHERE clause.
+	cur = cur->next;
+	if (cur->tok_value == K_WHERE) {
+		has_where_clause = true;
+		row_filter.type = K_AND;
+		row_filter.num_conditions = 1;
+
+		// Parse name of the filtering column.
+		cur = cur->next;
+		if (can_be_identifier(cur)) {
+			int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
+			if (col_index > -1) {
+				row_filter.conditions[0].col_id = col_index;
+				row_filter.conditions[0].value_type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+			} else {
+				rc = INVALID_COLUMN_NAME;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		} else {
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+
+		// Parse the operator and operand of the condition.
+		cur = cur->next;
+		if (cur->tok_value == S_LESS || cur->tok_value == S_GREATER || cur->tok_value == S_EQUAL) {
+			row_filter.conditions[0].op_type = cur->tok_value;
+			cur = cur->next;
+			if (cur->tok_value == INT_LITERAL) {
+				if (row_filter.conditions[0].value_type == FieldValueType::INT) {
+					row_filter.conditions[0].int_data_value = atoi(cur->tok_string);
+				} else {
+					rc = INVALID_CONDITION_OPERAND;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			} else if (cur->tok_value == STRING_LITERAL) {
+				if (row_filter.conditions[0].value_type == FieldValueType::STRING) {
+					strcpy(row_filter.conditions[0].string_data_value, cur->tok_string);
+				} else {
+					rc = INVALID_CONDITION_OPERAND;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			} else {
+				rc = INVALID_CONDITION;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		} else if (cur->tok_value == K_IS && cur->next->tok_value == K_NULL) { // "IS NULL"
+			cur = cur->next;
+			row_filter.conditions[0].op_type = K_IS;
+		} else if (cur->tok_value == K_IS && cur->next->tok_value == K_NOT && cur->next->next->tok_value == K_NULL) { // "IS NOT NULL"
+			cur = cur->next->next;
+			row_filter.conditions[0].op_type = K_NOT;
+		} else {
+			rc = INVALID_CONDITION;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+		cur = cur->next;
+	}
+
+	if (cur->tok_value != EOC) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+
+	// It is the heap memory owner of the content of the whole table.
+	// Do not forget to free it later.
+	table_file_header *tab_header = NULL;
+	if ((rc = load_table_records(tab_entry, &tab_header)) != 0) {
+		return rc;
+	}
+
+	// Load record rows.
+	char *record_in_table = NULL;
+	get_table_records(tab_header, &record_in_table);
+	record_row *p_first_row = NULL;
+	record_row *p_current_row = NULL;
+	record_row *p_previous_row = NULL;
+	int num_loaded_records = 0;
+	int num_affected_records = 0;
+	for (int i = 0; i < tab_header->num_records; i++) {
+		// Fill all field values (not only displayed columns) from current record.
+		if (p_previous_row == NULL) { // The first record will be loaded.
+			p_current_row = (record_row *) malloc(sizeof(record_row));
+			p_first_row = p_current_row;
+		} else {
+			p_current_row = (record_row *) malloc(sizeof(record_row));
+			p_previous_row->next = p_current_row;
+		}
+		fill_record_row(cd_entries, tab_entry->num_columns, p_current_row, record_in_table);
+		num_loaded_records++;
+
+		// Delete qualified records.
+		if ((!has_where_clause) || apply_row_predicate(cd_entries, tab_entry->num_columns, p_current_row, &row_filter)) {
+			free_record_row(p_current_row, false);
+			p_current_row = NULL;
+			if (p_previous_row == NULL) {
+				p_first_row = NULL;
+			} else {
+				p_previous_row->next = NULL;
+			}
+			num_affected_records++;
+		} else {
+			p_previous_row = p_current_row;
+		}
+
+		// Move forward to next record.
+		record_in_table += tab_header->record_size;
+	}
+
+	printf("Affected records: %d\n", num_affected_records);
+	if (num_affected_records > 0) {
+		// Write records back to .tab file.
+		rc = save_records_to_file(tab_header, p_first_row);
+	} else {
+		printf("[warning] No records were deleted.\n");
+	}
+
+	free_record_row(p_first_row, true);
+	free(tab_header);
 	return rc;
 }
 
@@ -1768,7 +1918,7 @@ int sem_update(token_list *t_list) {
 		char table_filename[MAX_IDENT_LEN + 5];
 		sprintf(table_filename, "%s.tab", tab_header->tpd_ptr->table_name);
 		FILE *fhandle = NULL;
-		if((fhandle = fopen(table_filename, "wbc")) == NULL) {
+		if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
 			rc = FILE_OPEN_ERROR;
 		} else {
 			tab_header->tpd_ptr = NULL; // Reset tpd pointer.
@@ -1776,6 +1926,8 @@ int sem_update(token_list *t_list) {
 			fflush(fhandle);
 			fclose(fhandle);
 		}
+	} else {
+		printf("[warning] No records were updated.\n");
 	}
 
 	free(tab_header);
@@ -1798,13 +1950,13 @@ int create_tab_file(char* table_name, cd_entry cd_entries[], int num_columns) {
 	tab_header.num_records = 0;
 	tab_header.record_offset = sizeof(table_file_header);
 	tab_header.file_header_flag = 0;
-	tab_header.tpd_ptr = NULL;
+	tab_header.tpd_ptr = NULL; // Reset tpd pointer.
 	
 	char table_filename[MAX_IDENT_LEN + 5];
 	sprintf(table_filename, "%s.tab", table_name);
 	FILE *fhandle = NULL;
 
-	if((fhandle = fopen(table_filename, "wbc")) == NULL) {
+	if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
 		rc = FILE_OPEN_ERROR;
 	} else {
 		fwrite((void *)&tab_header, tab_header.file_size, 1, fhandle);
@@ -1821,7 +1973,7 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry cd_
 		return INVALID_VALUES_COUNT;
 	}
 
-	for(int i = 0; i < num_values; i++) {
+	for (int i = 0; i < num_values; i++) {
 		if (field_values[i].is_null) {
 			// Field value is NULL.
 			if (cd_entries[i].col_type == T_INT) {
@@ -1869,7 +2021,7 @@ int load_table_records(tpd_entry *tpd, table_file_header **pp_table_header) {
 	char table_filename[MAX_IDENT_LEN + 5];
 	sprintf(table_filename, "%s.tab", tpd->table_name);
 	FILE *fhandle = NULL;
-	if((fhandle = fopen(table_filename, "rbc")) == NULL) {
+	if ((fhandle = fopen(table_filename, "rbc")) == NULL) {
 		return FILE_OPEN_ERROR;
 	}
 	int file_size = get_file_size(fhandle);
@@ -1900,7 +2052,7 @@ int fill_raw_record_bytes(cd_entry cd_entries[], field_value *field_values[], in
 	int cur_offset_in_record = 0;
 	int int_value = 0;
 	char *string_value = NULL;
-	for(int i = 0; i < num_cols; i++) {
+	for (int i = 0; i < num_cols; i++) {
 		if (field_values[i]->type == FieldValueType::INT) {
 			// Store a integer.
 			if (field_values[i]->is_null) {
@@ -1939,10 +2091,11 @@ int fill_raw_record_bytes(cd_entry cd_entries[], field_value *field_values[], in
 }
 
 int fill_record_row(cd_entry cd_entries[], int num_cols, record_row *p_row, char record_bytes[]) {
+	memset(p_row, '\0', sizeof(record_row));
+
 	int offset_in_record = 0;
 	unsigned char value_length = 0;
 	field_value *p_field_value = NULL;
-	p_row->num_fields = num_cols;
 	for (int i = 0; i < num_cols; i++) {
 		// Get value length.
 		memcpy(&value_length, record_bytes + offset_in_record, 1);
@@ -1970,12 +2123,15 @@ int fill_record_row(cd_entry cd_entries[], int num_cols, record_row *p_row, char
 		p_row->value_ptrs[i] = p_field_value;
 		offset_in_record += cd_entries[i].col_len;
 	}
+	p_row->num_fields = num_cols;
+	p_row->sorting_col_id = -1;
+	p_row->next = NULL;
 	return offset_in_record;
 }
 
 void print_table_border(cd_entry *sorted_cd_entries[], int num_values) {
 	int col_width = 0;
-	for(int i = 0; i < num_values; i++) {
+	for (int i = 0; i < num_values; i++) {
 		printf("+");
 		col_width = column_display_width(sorted_cd_entries[i]);
 		repeat_print_char('-', col_width + 2);
@@ -2004,7 +2160,7 @@ int column_display_width(cd_entry *col_entry) {
 
 void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *row) {
 	int col_gap = 0;
-	char display_value[MAX_STRING_LEN+1];
+	char display_value[MAX_STRING_LEN + 1];
 	int col_index = -1;
 	field_value **field_values = row->value_ptrs;
 	bool left_align = true;
@@ -2045,7 +2201,7 @@ int get_cd_entry_index(cd_entry cd_entries[], int num_cols, char *col_name) {
 }
 
 void print_aggregate_result(int aggregate_type, int num_fields, int records_count, int int_sum, cd_entry* sorted_cd_entries[]) {
-	char display_value[MAX_STRING_LEN+1];
+	char display_value[MAX_STRING_LEN + 1];
 	memset(display_value, '\0', sizeof(display_value));
 	if (aggregate_type == F_SUM) {
 		sprintf(display_value, "%d", int_sum);
@@ -2060,7 +2216,7 @@ void print_aggregate_result(int aggregate_type, int num_fields, int records_coun
 		sprintf(display_value, "%d", records_count);
 	}
 
-	char display_title[MAX_STRING_LEN+1];
+	char display_title[MAX_STRING_LEN + 1];
 	memset(display_title, '\0', sizeof(display_title));
 	if (num_fields == 1) {
 		// Aggregate on one column.
@@ -2192,7 +2348,7 @@ bool eval_condition(record_condition *p_condition, field_value *p_field_value) {
 }
 
 void sort_records(record_row rows[], int num_records, cd_entry *p_sorting_col, bool is_desc) {
-	for(int i = 0; i < num_records; i++) {
+	for (int i = 0; i < num_records; i++) {
 		rows[i].sorting_col_id = p_sorting_col->col_id;
 	}
 	qsort(rows, num_records, sizeof(record_row), records_comparator);
@@ -2209,7 +2365,7 @@ void sort_records(record_row rows[], int num_records, cd_entry *p_sorting_col, b
 	}
 }
 
-static int records_comparator(const void *arg1, const void *arg2) {
+int records_comparator(const void *arg1, const void *arg2) {
 	record_row *p_record1 = (record_row *) arg1;
 	record_row *p_record2 = (record_row *) arg2;
 	int sorting_col_id = p_record1->sorting_col_id;
@@ -2250,4 +2406,63 @@ static int records_comparator(const void *arg1, const void *arg2) {
 		}
 	}
 	return result;
+}
+
+void free_record_row(record_row *row, bool to_last) {
+	record_row *current_row = row;
+	record_row *temp = NULL;
+	while (current_row) {
+		for (int i = 0; i < current_row->num_fields; i++) {
+			if (current_row->value_ptrs[i]) {
+				free(current_row->value_ptrs[i]);
+			}
+		}
+		if (!to_last) {
+			return;
+		}
+		temp = current_row;
+		current_row = current_row->next;
+		free(temp);
+	}
+}
+
+int save_records_to_file(table_file_header * const tab_header, record_row * const rows_head) {
+	int rc = 0;
+	tpd_entry * const tab_entry = tab_header->tpd_ptr;
+
+	int num_rows = 0;
+	record_row *current_row = rows_head;
+	while (current_row) {
+		num_rows++;
+		current_row = current_row->next;
+	}
+
+	tab_header->num_records = num_rows;
+	tab_header->file_size = sizeof(table_file_header) + tab_header->record_size * num_rows;
+	tab_header->tpd_ptr = NULL; // Reset tpd pointer.
+
+	char table_filename[MAX_IDENT_LEN + 5];
+	sprintf(table_filename, "%s.tab", tab_entry->table_name);
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
+		rc = FILE_OPEN_ERROR;
+	} else {
+		fwrite(tab_header, tab_header->record_offset, 1, fhandle);
+
+		char *record_raw_bytes = (char *) malloc(tab_header->record_size);
+		cd_entry *cd_entries = NULL;
+		get_cd_entries(tab_entry, &cd_entries);
+		current_row = rows_head;
+		while (current_row) {
+			memset(record_raw_bytes, '\0', tab_header->record_size);
+			fill_raw_record_bytes(cd_entries, current_row->value_ptrs, tab_entry->num_columns, record_raw_bytes, tab_header->record_size);
+			fwrite(record_raw_bytes, tab_header->record_size, 1, fhandle);
+			current_row = current_row->next;
+		}
+		free(record_raw_bytes);
+		fflush(fhandle);
+		fclose(fhandle);
+	}
+
+	return rc;
 }

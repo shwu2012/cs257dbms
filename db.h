@@ -206,6 +206,7 @@ typedef struct record_row_def {
 	int num_fields;
 	field_value *value_ptrs[MAX_NUM_COL];
 	int sorting_col_id;
+	struct record_row_def *next;
 } record_row;
 
 /* Condition in record-level predicate by WHERE clause. */
@@ -256,6 +257,10 @@ int get_cd_entry_index(cd_entry cd_entries[], int num_cols, char *col_name);
 bool apply_row_predicate(cd_entry cd_entries[], int num_cols, record_row *p_row, record_predicate *p_predicate);
 bool eval_condition(record_condition *p_condition, field_value *p_field_value);
 void sort_records(record_row rows[], int num_records, cd_entry *p_sorting_col, bool is_desc);
+int execute_statement(char *statement);
+int records_comparator(const void *arg1, const void *arg2);
+void free_record_row(record_row *row, bool to_last);
+int save_records_to_file(table_file_header * const tab_header, record_row * const rows_head);
 
 
 /* inline functions */
