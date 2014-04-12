@@ -165,6 +165,8 @@ typedef enum return_codes_def {
 	INVALID_CONDITION, // -384
 	INVALID_CONDITION_OPERAND, // -383
 	MAX_ROW_EXCEEDED, // -382
+	DATA_TYPE_MISMATCH, // -381
+	UNEXPECTED_NULL_VALUE, // 380
 	/* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299, // -299
 	DBFILE_CORRUPTION, // -298
@@ -261,6 +263,7 @@ int execute_statement(char *statement);
 int records_comparator(const void *arg1, const void *arg2);
 void free_record_row(record_row *row, bool to_last);
 int save_records_to_file(table_file_header * const tab_header, record_row * const rows_head);
+int reload_global_tpd_list();
 
 
 /* inline functions */
@@ -302,10 +305,7 @@ inline void repeat_print_char(char c, int times) {
 }
 
 
-/*
-Keep a global list of tpd - in real life, this will be stored
-in shared memory.  Build a set of functions/methods around this.
-*/
-tpd_list *g_tpd_list;
+/* Keep a global list of tpd which will be initialized in db.cpp */
+extern tpd_list *g_tpd_list;
 
 #endif /* DB_HEADER_FILE */

@@ -15,6 +15,11 @@ Project#1:	CLP & DDL
 #include <sys/stat.h>
 #include <sys/types.h>
 
+/*
+Keep a global list of tpd - in real life, this will be stored
+in shared memory.  Build a set of functions/methods around this.
+*/
+tpd_list *g_tpd_list = NULL;
 
 int main(int argc, char** argv) {
 	if ((argc != 2) || (strlen(argv[1]) == 0)) {
@@ -24,10 +29,18 @@ int main(int argc, char** argv) {
 
 	int rc = execute_statement(argv[1]);
 
+	// Free g_tpd_list since all changes have been stored in files.
+	free(g_tpd_list);
+
 	printf("\nReturn code: %d. Press ENTER to exit.\n", rc);
 	getchar();
 
 	return rc;
+}
+
+int reload_global_tpd_list() {
+	free(g_tpd_list);
+	return initialize_tpd_list();
 }
 
 int execute_statement(char *statement) {
@@ -69,11 +82,6 @@ int execute_statement(char *statement) {
 
 		// Whether the token list is valid or not, we need to free the memory.
 		free_token_list(tok_list);
-	}
-
-	// Free g_tpd_list since all changes have been stored in files.
-	if (g_tpd_list) {
-		free(g_tpd_list);
 	}
 
 	return rc;
@@ -1711,6 +1719,7 @@ int sem_update(token_list *t_list) {
 	// Parse field name of the value to be updated.
 	cur = cur->next;
 	field_value value_to_update;
+	bool value_to_update_can_be_null = false;
 	memset(&value_to_update, '\0', sizeof(value_to_update));
 	if (can_be_identifier(cur)) {
 		int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
@@ -1718,6 +1727,7 @@ int sem_update(token_list *t_list) {
 			value_to_update.col_id = col_index;
 			value_to_update.linked_token = cur;
 			value_to_update.type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+			value_to_update_can_be_null = !cd_entries[col_index].not_null;
 		} else {
 			rc = INVALID_COLUMN_NAME;
 			cur->tok_value = INVALID;
@@ -1743,7 +1753,7 @@ int sem_update(token_list *t_list) {
 			strcpy(value_to_update.string_value, cur->tok_string);
 			value_to_update.is_null = false;
 		} else {
-			rc = INVALID_VALUE;
+			rc = DATA_TYPE_MISMATCH;
 			cur->tok_value = INVALID;
 			return rc;
 		}
@@ -1752,12 +1762,18 @@ int sem_update(token_list *t_list) {
 			value_to_update.int_value = atoi(cur->tok_string);
 			value_to_update.is_null = false;
 		} else {
-			rc = INVALID_VALUE;
+			rc = DATA_TYPE_MISMATCH;
 			cur->tok_value = INVALID;
 			return rc;
 		}
 	} else if (cur->tok_value == K_NULL) {
-		value_to_update.is_null = true;
+		if (value_to_update_can_be_null) {
+			value_to_update.is_null = true;
+		} else {
+			rc = UNEXPECTED_NULL_VALUE;
+			cur->tok_value = INVALID;
+			return rc;
+		}
 	} else {
 		rc = INVALID_STATEMENT;
 		cur->tok_value = INVALID;
@@ -1980,7 +1996,7 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry cd_
 			}
 			if (cd_entries[i].not_null) {
 				field_values[i].linked_token->tok_value = INVALID;
-				rc = INVALID_VALUE;
+				rc = UNEXPECTED_NULL_VALUE;
 				break;
 			}
 		} else {
@@ -1988,13 +2004,13 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry cd_
 			if (field_values[i].type == FieldValueType::INT) {
 				if (cd_entries[i].col_type != T_INT) {
 					field_values[i].linked_token->tok_value = INVALID;
-					rc = INVALID_VALUE;
+					rc = DATA_TYPE_MISMATCH;
 					break;
 				}
 			} else if (field_values[i].type == FieldValueType::STRING) {
 				if ((cd_entries[i].col_type != T_CHAR) || (cd_entries[i].col_len < (int)strlen(field_values[i].string_value))) {
 					field_values[i].linked_token->tok_value = INVALID;
-					rc = INVALID_VALUE;
+					rc = DATA_TYPE_MISMATCH;
 					break;
 				}
 			}
@@ -2410,9 +2426,7 @@ void free_record_row(record_row *row, bool to_last) {
 	record_row *temp = NULL;
 	while (current_row) {
 		for (int i = 0; i < current_row->num_fields; i++) {
-			if (current_row->value_ptrs[i]) {
-				free(current_row->value_ptrs[i]);
-			}
+			free(current_row->value_ptrs[i]);
 		}
 		if (!to_last) {
 			return;
