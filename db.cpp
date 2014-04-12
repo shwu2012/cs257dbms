@@ -1136,51 +1136,48 @@ int sem_insert(token_list *t_list) {
 		return rc;
 	}
 
-	// Now we can append the new record and write the .tab file back.
-	table_file_header *table_header;
-	rc = load_table_records(tab_entry, &table_header);
-
-	if (rc) {
-		cur->tok_value = INVALID;
+	
+	// It is the heap memory owner of the content of the whole table.
+	// Do not forget to free it later.
+	table_file_header *tab_header = NULL;
+	if ((rc = load_table_records(tab_entry, &tab_header)) != 0) {
 		return rc;
 	}
 
-	if (table_header->num_records >= MAX_NUM_ROW) {
+	if (tab_header->num_records >= MAX_NUM_ROW) {
 		rc = MAX_ROW_EXCEEDED;
-		free(table_header);
+		free(tab_header);
 		return rc;
 	}
 
 	// Compose the new record.
-	// The maximum possible length of each field is 1 (for the data length) + 255 (a string of 255 characters) = 256.
-	// For x86 and x64 machines, the default stack size is 1 MB, so it is safe to have 16 * 256 = 4K memory in stack for the new record.
-	char record_bytes[MAX_NUM_COL * (1 + MAX_STRING_LEN)];
+	char *record_bytes = (char *) malloc(tab_header->record_size);
 	field_value *field_value_ptrs[MAX_NUM_COL];
 	for (int i = 0; i < num_values; i++) {
 		field_value_ptrs[i] = &field_values[i];
 	}
-	fill_raw_record_bytes(cd_entries, field_value_ptrs, num_values, record_bytes, sizeof(record_bytes));
+	fill_raw_record_bytes(cd_entries, field_value_ptrs, num_values, record_bytes, sizeof(tab_header->record_size));
 
+	// Append the new record to the .tab file.
 	char table_filename[MAX_IDENT_LEN + 5];
-	sprintf(table_filename, "%s.tab", table_header->tpd_ptr->table_name);
+	sprintf(table_filename, "%s.tab", tab_header->tpd_ptr->table_name);
 	FILE *fhandle = NULL;
 	if ((fhandle = fopen(table_filename, "wbc")) == NULL) {
 		rc = FILE_OPEN_ERROR;
-		free(table_header);
-		return rc;
+	} else {
+		// Add one more record in table header.
+		int old_table_file_size = tab_header->file_size;
+		tab_header->num_records++;
+		tab_header->file_size += tab_header->record_size;
+		tab_header->tpd_ptr = NULL; // Reset tpd pointer.
+
+		fwrite(tab_header, old_table_file_size, 1, fhandle);
+		fwrite(record_bytes, tab_header->record_size, 1, fhandle);
+		fflush(fhandle);
+		fclose(fhandle);
 	}
-
-	// Add one more record in table header.
-	int old_table_file_size = table_header->file_size;
-	table_header->num_records++;
-	table_header->file_size += table_header->record_size;
-	table_header->tpd_ptr = NULL; // Reset tpd pointer.
-
-	fwrite(table_header, old_table_file_size, 1, fhandle);
-	fwrite(record_bytes, table_header->record_size, 1, fhandle);
-	fflush(fhandle);
-	fclose(fhandle);
-	free(table_header);
+	free(record_bytes);
+	free(tab_header);
 	return rc;
 }
 
