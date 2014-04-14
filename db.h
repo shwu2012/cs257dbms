@@ -185,11 +185,15 @@ typedef struct table_file_header_def {
 	tpd_entry *tpd_ptr;
 } table_file_header;
 
-enum class FieldValueType {UNKNOWN, INT, STRING};
+typedef enum field_value_type_def {
+	FIELD_VALUE_TYPE_UNKNOWN = 0, // 0
+	FIELD_VALUE_TYPE_INT, // 1
+	FIELD_VALUE_TYPE_STRING // 2
+} field_value_type;
 
 /* The structure to represent the int/string typed value in each record field. */
 typedef struct field_value_def {
-	FieldValueType type;
+	int type; // The enum of field_value_type.
 	bool is_null;
 	int int_value; // Fill int value here.
 	char string_value[MAX_STRING_LEN + 1]; // Fill string value here.
@@ -213,7 +217,7 @@ typedef struct record_row_def {
 
 /* Condition in record-level predicate by WHERE clause. */
 typedef struct record_condition_def {
-	FieldValueType value_type; // Type of the field. It is available only the operator is in {S_LESS, S_GREATER, S_EQUAL}.
+	int value_type; // The enum of field_value_type. It is available only the operator is in {S_LESS, S_GREATER, S_EQUAL}.
 	int col_id; // LHS operand.
 	int op_type; // Relational operator, can be S_LESS, S_GREATER, S_EQUAL, K_IS (used in "IS NULL"), or K_NOT (used in "IS NOT NULL").
 	int int_data_value; // RHS operand. It is available only if data type is integer and operator is in {S_LESS, S_GREATER, S_EQUAL}.

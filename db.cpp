@@ -1090,19 +1090,19 @@ int sem_insert(token_list *t_list) {
 		}
 
 		if (cur->tok_value == STRING_LITERAL) {
-			field_values[num_values].type = FieldValueType::STRING;
+			field_values[num_values].type = FIELD_VALUE_TYPE_STRING;
 			field_values[num_values].is_null = false;
 			strcpy(field_values[num_values].string_value, cur->tok_string);
 			field_values[num_values].linked_token = cur;
 			field_values[num_values].col_id = num_values;
 		} else if (cur->tok_value == INT_LITERAL) {
-			field_values[num_values].type = FieldValueType::INT;
+			field_values[num_values].type = FIELD_VALUE_TYPE_INT;
 			field_values[num_values].is_null = false;
 			field_values[num_values].int_value = atoi(cur->tok_string);
 			field_values[num_values].linked_token = cur;
 			field_values[num_values].col_id = num_values;
 		} else if (cur->tok_value == K_NULL) {
-			field_values[num_values].type = FieldValueType::UNKNOWN;
+			field_values[num_values].type = FIELD_VALUE_TYPE_UNKNOWN;
 			field_values[num_values].is_null = true;
 			field_values[num_values].linked_token = cur;
 			field_values[num_values].col_id = num_values;
@@ -1345,7 +1345,7 @@ int sem_select(token_list *t_list) {
 				col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
 				if (col_index > -1) {
 					row_filter.conditions[num_conditions].col_id = col_index;
-					row_filter.conditions[num_conditions].value_type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+					row_filter.conditions[num_conditions].value_type = ((cd_entries[col_index].col_type == T_INT) ? FIELD_VALUE_TYPE_INT : FIELD_VALUE_TYPE_STRING);
 				} else {
 					rc = INVALID_COLUMN_NAME;
 					cur->tok_value = INVALID;
@@ -1363,7 +1363,7 @@ int sem_select(token_list *t_list) {
 				row_filter.conditions[num_conditions].op_type = cur->tok_value;
 				cur = cur->next;
 				if (cur->tok_value == INT_LITERAL) {
-					if (row_filter.conditions[num_conditions].value_type == FieldValueType::INT) {
+					if (row_filter.conditions[num_conditions].value_type == FIELD_VALUE_TYPE_INT) {
 						row_filter.conditions[num_conditions].int_data_value = atoi(cur->tok_string);
 					} else {
 						rc = INVALID_CONDITION_OPERAND;
@@ -1371,7 +1371,7 @@ int sem_select(token_list *t_list) {
 						return rc;
 					}
 				} else if (cur->tok_value == STRING_LITERAL) {
-					if (row_filter.conditions[num_conditions].value_type == FieldValueType::STRING) {
+					if (row_filter.conditions[num_conditions].value_type == FIELD_VALUE_TYPE_STRING) {
 						strcpy(row_filter.conditions[num_conditions].string_data_value, cur->tok_string);
 					} else {
 						rc = INVALID_CONDITION_OPERAND;
@@ -1570,7 +1570,7 @@ int sem_delete(token_list *t_list) {
 			int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
 			if (col_index > -1) {
 				row_filter.conditions[0].col_id = col_index;
-				row_filter.conditions[0].value_type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+				row_filter.conditions[0].value_type = ((cd_entries[col_index].col_type == T_INT) ? FIELD_VALUE_TYPE_INT : FIELD_VALUE_TYPE_STRING);
 			} else {
 				rc = INVALID_COLUMN_NAME;
 				cur->tok_value = INVALID;
@@ -1588,7 +1588,7 @@ int sem_delete(token_list *t_list) {
 			row_filter.conditions[0].op_type = cur->tok_value;
 			cur = cur->next;
 			if (cur->tok_value == INT_LITERAL) {
-				if (row_filter.conditions[0].value_type == FieldValueType::INT) {
+				if (row_filter.conditions[0].value_type == FIELD_VALUE_TYPE_INT) {
 					row_filter.conditions[0].int_data_value = atoi(cur->tok_string);
 				} else {
 					rc = INVALID_CONDITION_OPERAND;
@@ -1596,7 +1596,7 @@ int sem_delete(token_list *t_list) {
 					return rc;
 				}
 			} else if (cur->tok_value == STRING_LITERAL) {
-				if (row_filter.conditions[0].value_type == FieldValueType::STRING) {
+				if (row_filter.conditions[0].value_type == FIELD_VALUE_TYPE_STRING) {
 					strcpy(row_filter.conditions[0].string_data_value, cur->tok_string);
 				} else {
 					rc = INVALID_CONDITION_OPERAND;
@@ -1726,7 +1726,7 @@ int sem_update(token_list *t_list) {
 		if (col_index > -1) {
 			value_to_update.col_id = col_index;
 			value_to_update.linked_token = cur;
-			value_to_update.type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+			value_to_update.type = ((cd_entries[col_index].col_type == T_INT) ? FIELD_VALUE_TYPE_INT : FIELD_VALUE_TYPE_STRING);
 			value_to_update_can_be_null = !cd_entries[col_index].not_null;
 		} else {
 			rc = INVALID_COLUMN_NAME;
@@ -1749,7 +1749,7 @@ int sem_update(token_list *t_list) {
 	// Parse field value of the value to be updated.
 	cur = cur->next;
 	if (cur->tok_value == STRING_LITERAL) {
-		if (value_to_update.type == FieldValueType::STRING) {
+		if (value_to_update.type == FIELD_VALUE_TYPE_STRING) {
 			strcpy(value_to_update.string_value, cur->tok_string);
 			value_to_update.is_null = false;
 		} else {
@@ -1758,7 +1758,7 @@ int sem_update(token_list *t_list) {
 			return rc;
 		}
 	} else if (cur->tok_value == INT_LITERAL) {
-		if (value_to_update.type == FieldValueType::INT) {
+		if (value_to_update.type == FIELD_VALUE_TYPE_INT) {
 			value_to_update.int_value = atoi(cur->tok_string);
 			value_to_update.is_null = false;
 		} else {
@@ -1796,7 +1796,7 @@ int sem_update(token_list *t_list) {
 			int col_index = get_cd_entry_index(cd_entries, tab_entry->num_columns, cur->tok_string);
 			if (col_index > -1) {
 				row_filter.conditions[0].col_id = col_index;
-				row_filter.conditions[0].value_type = ((cd_entries[col_index].col_type == T_INT) ? FieldValueType::INT : FieldValueType::STRING);
+				row_filter.conditions[0].value_type = ((cd_entries[col_index].col_type == T_INT) ? FIELD_VALUE_TYPE_INT : FIELD_VALUE_TYPE_STRING);
 			} else {
 				rc = INVALID_COLUMN_NAME;
 				cur->tok_value = INVALID;
@@ -1814,7 +1814,7 @@ int sem_update(token_list *t_list) {
 			row_filter.conditions[0].op_type = cur->tok_value;
 			cur = cur->next;
 			if (cur->tok_value == INT_LITERAL) {
-				if (row_filter.conditions[0].value_type == FieldValueType::INT) {
+				if (row_filter.conditions[0].value_type == FIELD_VALUE_TYPE_INT) {
 					row_filter.conditions[0].int_data_value = atoi(cur->tok_string);
 				} else {
 					rc = INVALID_CONDITION_OPERAND;
@@ -1822,7 +1822,7 @@ int sem_update(token_list *t_list) {
 					return rc;
 				}
 			} else if (cur->tok_value == STRING_LITERAL) {
-				if (row_filter.conditions[0].value_type == FieldValueType::STRING) {
+				if (row_filter.conditions[0].value_type == FIELD_VALUE_TYPE_STRING) {
 					strcpy(row_filter.conditions[0].string_data_value, cur->tok_string);
 				} else {
 					rc = INVALID_CONDITION_OPERAND;
@@ -1879,7 +1879,7 @@ int sem_update(token_list *t_list) {
 		if ((!has_where_clause) || apply_row_predicate(cd_entries, tab_entry->num_columns, p_current_row, &row_filter)) {
 			// Only update the record if the value is really changed.
 			bool value_changed = false;
-			if (value_to_update.type == FieldValueType::INT) {
+			if (value_to_update.type == FIELD_VALUE_TYPE_INT) {
 				if (value_to_update.is_null) {
 					// Update NULL integer value.
 					if (!p_current_row->value_ptrs[value_to_update.col_id]->is_null) {
@@ -1990,9 +1990,9 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry cd_
 		if (field_values[i].is_null) {
 			// Field value is NULL.
 			if (cd_entries[i].col_type == T_INT) {
-				field_values[i].type = FieldValueType::INT;
+				field_values[i].type = FIELD_VALUE_TYPE_INT;
 			} else {
-				field_values[i].type = FieldValueType::STRING;
+				field_values[i].type = FIELD_VALUE_TYPE_STRING;
 			}
 			if (cd_entries[i].not_null) {
 				field_values[i].linked_token->tok_value = INVALID;
@@ -2001,13 +2001,13 @@ int check_insert_values(field_value field_values[], int num_values, cd_entry cd_
 			}
 		} else {
 			// Field value is not NULL, so it must be either integer or string.
-			if (field_values[i].type == FieldValueType::INT) {
+			if (field_values[i].type == FIELD_VALUE_TYPE_INT) {
 				if (cd_entries[i].col_type != T_INT) {
 					field_values[i].linked_token->tok_value = INVALID;
 					rc = DATA_TYPE_MISMATCH;
 					break;
 				}
-			} else if (field_values[i].type == FieldValueType::STRING) {
+			} else if (field_values[i].type == FIELD_VALUE_TYPE_STRING) {
 				if ((cd_entries[i].col_type != T_CHAR) || (cd_entries[i].col_len < (int)strlen(field_values[i].string_value))) {
 					field_values[i].linked_token->tok_value = INVALID;
 					rc = DATA_TYPE_MISMATCH;
@@ -2066,7 +2066,7 @@ int fill_raw_record_bytes(cd_entry cd_entries[], field_value *field_values[], in
 	int int_value = 0;
 	char *string_value = NULL;
 	for (int i = 0; i < num_cols; i++) {
-		if (field_values[i]->type == FieldValueType::INT) {
+		if (field_values[i]->type == FIELD_VALUE_TYPE_INT) {
 			// Store a integer.
 			if (field_values[i]->is_null) {
 				// Null value.
@@ -2121,13 +2121,13 @@ int fill_record_row(cd_entry cd_entries[], int num_cols, record_row *p_row, char
 		p_field_value->linked_token = NULL;
 		if (cd_entries[i].col_type == T_INT) {
 			// Set an integer.
-			p_field_value->type = FieldValueType::INT;
+			p_field_value->type = FIELD_VALUE_TYPE_INT;
 			if (!p_field_value->is_null) {
 				memcpy(&p_field_value->int_value, record_bytes + offset_in_record, value_length);
 			}
 		} else {
 			// Set a string.
-			p_field_value->type = FieldValueType::STRING;
+			p_field_value->type = FIELD_VALUE_TYPE_STRING;
 			if (!p_field_value->is_null) {
 				memcpy(p_field_value->string_value, record_bytes + offset_in_record, value_length);
 				p_field_value->string_value[value_length] = '\0';
@@ -2181,7 +2181,7 @@ void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *r
 		col_index = sorted_cd_entries[i]->col_id;
 		left_align = true;
 		if (!field_values[col_index]->is_null) {
-			if (field_values[col_index]->type == FieldValueType::INT) {
+			if (field_values[col_index]->type == FIELD_VALUE_TYPE_INT) {
 				left_align = false;
 				sprintf(display_value, "%d", field_values[col_index]->int_value);
 			} else {
@@ -2298,7 +2298,7 @@ bool eval_condition(record_condition *p_condition, field_value *p_field_value) {
 	switch (p_condition->op_type) {
 	case S_LESS:
 		// Operator "<"
-		if (p_condition->value_type == FieldValueType::INT) {
+		if (p_condition->value_type == FIELD_VALUE_TYPE_INT) {
 			if (p_field_value->is_null) {
 				result = false;
 			} else {
@@ -2314,7 +2314,7 @@ bool eval_condition(record_condition *p_condition, field_value *p_field_value) {
 		break;
 	case S_EQUAL:
 		// Operator "="
-		if (p_condition->value_type == FieldValueType::INT) {
+		if (p_condition->value_type == FIELD_VALUE_TYPE_INT) {
 			if (p_field_value->is_null) {
 				result = false;
 			} else {
@@ -2330,7 +2330,7 @@ bool eval_condition(record_condition *p_condition, field_value *p_field_value) {
 		break;
 	case S_GREATER:
 		// Operator ">"
-		if (p_condition->value_type == FieldValueType::INT) {
+		if (p_condition->value_type == FIELD_VALUE_TYPE_INT) {
 			if (p_field_value->is_null) {
 				result = false;
 			} else {
@@ -2389,7 +2389,7 @@ int records_comparator(const void *arg1, const void *arg2) {
 	int result = 0;
 	field_value *p_value1 = p_record1->value_ptrs[sorting_col_id];
 	field_value *p_value2 = p_record2->value_ptrs[sorting_col_id];
-	if (p_value1->type == FieldValueType::INT) {
+	if (p_value1->type == FIELD_VALUE_TYPE_INT) {
 		// Compare 2 integers.
 		// NULL is smaller than any other values.
 		if (p_value1->is_null) {
