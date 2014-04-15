@@ -1068,7 +1068,7 @@ int sem_insert(token_list *t_list) {
 	}
 
 	cur = cur->next;
-	if ((cur->tok_value != K_VALUES) && (cur->next->tok_value != S_LEFT_PAREN))	{
+	if ((cur->tok_value != K_VALUES) || (cur->next->tok_value != S_LEFT_PAREN))	{
 		rc = INVALID_STATEMENT;
 		cur->tok_value = INVALID;
 		return rc;

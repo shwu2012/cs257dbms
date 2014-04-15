@@ -99,6 +99,11 @@ namespace sjsu_cs257_test
 		{
 			Assert::AreEqual(static_cast<int>(UNEXPECTED_NULL_VALUE), execute_statement("INSERT INTO BOOK VALUES(NULL, 'Peter Harrington', 1337)"), L"Return code");
 		}
+
+		TEST_METHOD(InvalidStatement)
+		{
+			Assert::AreEqual(static_cast<int>(INVALID_STATEMENT), execute_statement("INSERT INTO BOOK VALUES)'Machine Learning in Action', 'Peter Harrington', 1337)"), L"Return code");
+		}
 	};
 
 	TEST_CLASS(UpdateTest)
