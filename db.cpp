@@ -32,9 +32,6 @@ int main(int argc, char** argv) {
 	// Free g_tpd_list since all changes have been stored in files.
 	free(g_tpd_list);
 
-	printf("\nReturn code: %d. Press ENTER to exit.\n", rc);
-	getchar();
-
 	return rc;
 }
 
