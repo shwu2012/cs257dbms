@@ -2185,7 +2185,9 @@ void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *r
 				strcpy(display_value, field_values[col_index]->string_value);
 			}
 		} else {
-			display_value[0] = '\0';
+			// Display NULL value as a dash.
+			strcpy(display_value, "-");
+			left_align = (field_values[col_index]->type == FIELD_VALUE_TYPE_STRING);
 		}
 		col_gap = column_display_width(sorted_cd_entries[i]) - strlen(display_value) + 1;
 		if (left_align) {
