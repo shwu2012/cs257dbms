@@ -8,6 +8,7 @@ Project#1:	CLP & DDL
 
 #include "db.h"
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <search.h>
@@ -76,10 +77,6 @@ int execute_statement(char *statement) {
 				case UPDATE:
 					// Log '<timestamp> "original DDL/DML statement within double quotes"'
 					write_log_with_timestamp(statement, current_timestamp());
-					break;
-				case BACKUP_TO_IMAGE:
-				case RESTORE_FROM_IMAGE:
-					// Log 'BACKUP <image file name>' or 'RF_START' if necessary.
 					break;
 				}
 			}
@@ -384,6 +381,9 @@ int do_semantic(token_list *tok_list, int *p_cmd_type)
 			break;
 		case SELECT:
 			rc = sem_select(cur);
+			break;
+		case BACKUP_TO_IMAGE:
+			rc = sem_backup(cur);
 			break;
 		default:
 			; /* no action */
@@ -856,10 +856,10 @@ int initialize_tpd_list()
 	FILE *fhandle = NULL;
 
 	/* Open for read */
-	if ((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
+	if ((fhandle = fopen(kDbFile, "rbc")) == NULL)
 	{
 		// DB file "dbfile.bin" doesn't exist, so create it.
-		if ((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
+		if ((fhandle = fopen(kDbFile, "wbc")) == NULL)
 		{
 			rc = FILE_OPEN_ERROR;
 		}
@@ -914,7 +914,7 @@ int add_tpd_to_list(tpd_entry *tpd)
 	int old_size = 0;
 	FILE *fhandle = NULL;
 
-	if ((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
+	if ((fhandle = fopen(kDbFile, "wbc")) == NULL)
 	{
 		rc = FILE_OPEN_ERROR;
 	}
@@ -964,7 +964,7 @@ int drop_tpd_from_list(char *tabname)
 				int old_size = 0;
 				FILE *fhandle = NULL;
 
-				if ((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
+				if ((fhandle = fopen(kDbFile, "wbc")) == NULL)
 				{
 					rc = FILE_OPEN_ERROR;
 				}
@@ -1218,6 +1218,83 @@ int sem_insert(token_list *t_list) {
 	}
 	free(record_bytes);
 	free(tab_header);
+	return rc;
+}
+
+int sem_backup(token_list *t_list) {
+	int rc = 0;
+	token_list *cur = t_list;
+
+	int num_tables = g_tpd_list->num_tables;
+	tpd_entry *tab_entry = &(g_tpd_list->tpd_start);
+
+	if (!can_be_identifier(cur)) {
+		rc = INVALID_BACKUP_FILENAME;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	const char *img_file_name = cur->tok_string;
+	// Make sure the backup file doesn't exist.
+	FILE *fhandle = NULL;
+	if (fopen(img_file_name, "r") != NULL) {
+		fclose(fhandle);
+		rc = BACKUP_FILE_EXISTS;
+		return rc;
+	}
+
+	cur = cur->next;
+	if (cur->tok_class != TOKEN_CLASS_TERMINATOR) {
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+
+	table_file_header *tab_headers[MAX_NUM_TABLE];
+	for (int i = 0; i < MAX_NUM_TABLE; i++) {
+		tab_headers[i] = NULL;
+	}
+
+	for (int i = 0; i < num_tables; i++) {
+		if ((rc = load_table_records(tab_entry, &(tab_headers[i]))) != 0) {
+			return rc;
+		}
+		// Move to next table.
+		tab_entry = (tpd_entry*)((char*)tab_entry + tab_entry->tpd_size);
+	}
+
+	fhandle = NULL;
+	if ((fhandle = fopen(img_file_name, "wbc")) == NULL) {
+		rc = FILE_OPEN_ERROR;
+	} else {
+		// Write dbfile.bin to the backup file.
+		fwrite(g_tpd_list, g_tpd_list->list_size, 1, fhandle);
+		// Write each table file contant to the backup file.
+		// We use 32-bit integer to occupy 4 bytes as the length of a table file.
+		int32_t table_size = 0;
+		for (int i = 0; i < num_tables; i++) {
+			// Reset tpd pointer.
+			tab_headers[i]->tpd_ptr = NULL;
+			table_size = tab_headers[i]->file_size;
+			// Write table size.
+			fwrite(&table_size, sizeof(table_size), 1, fhandle);
+			// Write table content.
+			fwrite(tab_headers[i], tab_headers[i]->file_size, 1, fhandle);
+		}
+		fflush(fhandle);
+		fclose(fhandle);
+	}
+
+	for (int i = 0; i < num_tables; i++) {
+		free(tab_headers[i]);
+		tab_headers[i] = NULL;
+	}
+
+	// Write log.
+	char log_msg[MAX_STRING_LEN];
+	sprintf(log_msg, "BACKUP %s", img_file_name);
+	write_log(log_msg);
+
 	return rc;
 }
 
@@ -2513,7 +2590,7 @@ int save_records_to_file(table_file_header * const tab_header, record_row * cons
 }
 
 int write_log_with_timestamp(const char *msg, time_t timestamp) {
-	FILE *fhandle = fopen("db.log", "a");
+	FILE *fhandle = fopen(kDbLogFile, "a");
 	if (!fhandle) {
 		return FILE_OPEN_ERROR;
 	}
@@ -2524,6 +2601,16 @@ int write_log_with_timestamp(const char *msg, time_t timestamp) {
 	// Format is "yyyymmddhhmmss".
 	sprintf(timestamp_text, "%d%02d%02d%02d%02d%02d", 1900 + t->tm_year, 1 + t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
 	fprintf(fhandle, "%s \"%s\"\n", timestamp_text, msg);
+	fclose(fhandle);
+	return 0;
+}
+
+int write_log(const char *msg) {
+	FILE *fhandle = fopen(kDbLogFile, "a");
+	if (!fhandle) {
+		return FILE_OPEN_ERROR;
+	}
+	fprintf(fhandle, "%s\n", msg);
 	fclose(fhandle);
 	return 0;
 }

@@ -13,11 +13,16 @@ prototype for the db.exe program.
 #define MAX_STRING_LEN 255
 #define MAX_NUM_COL 16
 #define MAX_NUM_ROW 1000
+#define MAX_NUM_TABLE 1000
 #define MAX_NUM_CONDITION 2
 #define MAX_TOK_LEN 256
 #define KEYWORD_OFFSET 10
 #define STRING_BREAK " (),<>="
 #define NUMBER_BREAK " ),"
+
+/* Constants */
+const char kDbFile[] = "dbfile.bin";
+const char kDbLogFile[] = "db.log";
 
 /* Column descriptor sturcture = 20+4+4+4+4 = 36 bytes */
 typedef struct cd_entry_def {
@@ -56,8 +61,8 @@ each token, a new token_list will be allocated and linked
 together. */
 typedef struct token_list_def {
 	char tok_string[MAX_TOK_LEN];
-	int tok_class;
-	int tok_value;
+	int tok_class; // enum token_class_def
+	int tok_value; // enum token_value_def
 	struct token_list_def *next;
 } token_list;
 
@@ -182,7 +187,9 @@ typedef enum return_codes_def {
 	DBFILE_CORRUPTION, // -298
 	MEMORY_ERROR, // -297
 	FILE_REMOVE_ERROR, // -296
-	TABFILE_CORRUPTION // -295
+	TABFILE_CORRUPTION, // -295
+	INVALID_BACKUP_FILENAME, // -294
+	BACKUP_FILE_EXISTS // -293
 } return_codes;
 
 /* Table file structures in which we store records of that table */
@@ -253,6 +260,7 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
+int sem_backup(token_list *t_list);
 int initialize_tpd_list();
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
@@ -279,6 +287,7 @@ void free_record_row(record_row *row, bool to_last);
 int save_records_to_file(table_file_header * const tab_header, record_row * const rows_head);
 int reload_global_tpd_list();
 int write_log_with_timestamp(const char *msg, time_t timestamp);
+int write_log(const char *msg);
 
 
 /* inline functions */
