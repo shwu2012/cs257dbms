@@ -1,5 +1,8 @@
 #include "CppUnitTest.h"
 #include "../sjsu_cs257/db.h"
+#include <string>
+#include <fstream>
+#include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -17,6 +20,7 @@ namespace sjsu_cs257_test
 	{
 		remove("dbfile.bin");
 		remove("BOOK.tab");
+		remove("db.log");
 	}
 
 	TEST_CLASS(CreateTest)
@@ -148,6 +152,66 @@ namespace sjsu_cs257_test
 		TEST_METHOD(UpdateNotNullViolation)
 		{
 			Assert::AreEqual(static_cast<int>(UNEXPECTED_NULL_VALUE), execute_statement("UPDATE BOOK SET title=NULL WHERE copies > 0"), L"Return code");
+		}
+	};
+
+	TEST_CLASS(LogTest)
+	{
+	public:
+
+		BEGIN_TEST_CLASS_ATTRIBUTE()
+			TEST_CLASS_ATTRIBUTE(L"Descrioption", L"Tests to log original DDL/DML statement within double quotes.")
+		END_TEST_CLASS_ATTRIBUTE()
+
+		TEST_METHOD_INITIALIZE(MethodInitialize)
+		{
+			remove("dbfile.bin");
+			remove("BOOK.tab");
+			remove("db.log");
+		}
+
+		TEST_METHOD_CLEANUP(MethodFinalize) {}
+
+		TEST_METHOD(LogWithTimestamp)
+		{
+			time_t ts = 1399249287L; // Sunday, May 04, 2014 5:21:27 PM GMT-7
+			std::string msg("any SQL statement");
+			write_log_with_timestamp(msg.c_str(), ts);
+			std::ifstream input("db.log");
+			std::string line;
+			std::string expected_log_entry("20140504172127");
+			expected_log_entry.append(" \"");
+			expected_log_entry.append(msg);
+			expected_log_entry.append("\"");
+			int num_lines = 0;
+			while(std::getline(input, line)) {
+				Assert::AreEqual(expected_log_entry, line, L"Log line");
+				num_lines++;
+			}
+			Assert::AreEqual(1, num_lines, L"Log lines count");
+		}
+
+		TEST_METHOD(LogDdlAndDmlStatements)
+		{
+			std::vector<std::string> statements;
+			statements.push_back("CREATE TABLE BOOK(title char(50) NOT NULL, author char(30), copies int)");
+			statements.push_back("INSERT INTO BOOK VALUES('Machine Learning in Action', 'Peter Harrington', 1337)");
+			statements.push_back("INSERT INTO BOOK VALUES('Master Thesis: Machine Learning', 'unknown', NULL)");
+			statements.push_back("UPDATE BOOK SET author='Shuang Wu'");
+			statements.push_back("UPDATE BOOK SET title=NULL"); // will not log because return code is not 0
+			statements.push_back("SELECT * FROM BOOK"); // will not log because this is not a DDL or DML statement.
+			for(std::vector<std::string>::iterator it = statements.begin(); it != statements.end(); ++it) { 
+				execute_statement((char *)(it->c_str()));
+			}
+			std::ifstream input("db.log");
+			std::string line;
+			int num_lines = 0;
+			while(std::getline(input, line)) {
+				Assert::AreEqual(statements[num_lines], line.substr(16, line.size() - 17));
+				num_lines++;
+			}
+			int expected_log_lines = statements.size() - 2;
+			Assert::AreEqual(expected_log_lines, num_lines, L"Log lines count");
 		}
 	};
 

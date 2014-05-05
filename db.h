@@ -7,6 +7,7 @@ prototype for the db.exe program.
 *********************************************************************/
 
 #include <stdio.h>
+#include <time.h>
 
 #define MAX_IDENT_LEN 16
 #define MAX_STRING_LEN 255
@@ -101,10 +102,15 @@ typedef enum token_value_def {
 	K_DESC, // 32
 	K_IS, // 33
 	K_AND, // 34
-	K_OR, // 35 - new keyword should be added below this line
-	F_SUM, // 36
-	F_AVG, // 37
-	F_COUNT, // 38 - new function name should be added below this line
+	K_OR, // 35
+	K_BACKUP, // 36
+	K_RESTORE, // 37
+	K_WITHOUT, // 38
+	K_RF, // 39
+	K_ROLLFORWARD, // 40 - new keyword should be added below this line
+	F_SUM, // 41
+	F_AVG, // 42
+	F_COUNT, // 43 - new function name should be added below this line
 	S_LEFT_PAREN = 70,  // 70
 	S_RIGHT_PAREN, // 71
 	S_COMMA, // 72
@@ -120,7 +126,7 @@ typedef enum token_value_def {
 } token_value;
 
 /* This constants must be updated when add new keywords */
-#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 29
+#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 34
 
 /* New keyword must be added in the same position/order as the enum
 definition above, otherwise the lookup will be wrong */
@@ -128,6 +134,7 @@ const char * const keyword_table[] = {
 	"int", "char", "create", "table", "not", "null", "drop", "list", "schema",
 	"for", "to", "insert", "into", "values", "delete", "from", "where", 
 	"update", "set", "select", "order", "by", "desc", "is", "and", "or",
+	"backup", "restore", "without", "rf", "rollforward",
 	"sum", "avg", "count"
 };
 
@@ -141,7 +148,10 @@ typedef enum semantic_statement_def {
 	INSERT, // 104
 	DELETE, // 105
 	UPDATE, // 106
-	SELECT // 107
+	SELECT, // 107
+	BACKUP_TO_IMAGE, // 108
+	RESTORE_FROM_IMAGE, // 109
+	ROLLFORWARD // 110
 } semantic_statement;
 
 /* This enum has a list of all the errors that should be detected
@@ -234,7 +244,7 @@ typedef struct record_predicate_def {
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
-int do_semantic(token_list *tok_list);
+int do_semantic(token_list *tok_list, int *p_cmd_type);
 int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
@@ -268,6 +278,7 @@ int records_comparator(const void *arg1, const void *arg2);
 void free_record_row(record_row *row, bool to_last);
 int save_records_to_file(table_file_header * const tab_header, record_row * const rows_head);
 int reload_global_tpd_list();
+int write_log_with_timestamp(const char *msg, time_t timestamp);
 
 
 /* inline functions */
@@ -306,6 +317,13 @@ inline void repeat_print_char(char c, int times) {
 	for (int i = 0; i < times; i++) {
 		printf("%c", c);
 	}
+}
+
+inline time_t current_timestamp() {
+	time_t timestamp;
+	// Get time in seconds.
+	time(&timestamp);
+	return timestamp;
 }
 
 

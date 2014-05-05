@@ -12,6 +12,7 @@ Project#1:	CLP & DDL
 #include <stdlib.h>
 #include <search.h>
 #include <ctype.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -61,8 +62,27 @@ int execute_statement(char *statement) {
 		repeat_print_char('-', 16 + 11 + 11);
 		printf("\n\n");
 
+		int cmd_type = INVALID_STATEMENT;
 		if (!rc) {
-			rc = do_semantic(tok_list);
+			rc = do_semantic(tok_list, &cmd_type);
+
+			// Log command if it is executed successfully.
+			if (!rc) {
+				switch(cmd_type) {
+				case CREATE_TABLE:
+				case DROP_TABLE:
+				case INSERT:
+				case DELETE:
+				case UPDATE:
+					// Log '<timestamp> "original DDL/DML statement within double quotes"'
+					write_log_with_timestamp(statement, current_timestamp());
+					break;
+				case BACKUP_TO_IMAGE:
+				case RESTORE_FROM_IMAGE:
+					// Log 'BACKUP <image file name>' or 'RF_START' if necessary.
+					break;
+				}
+			}
 		}
 
 		if (rc) {
@@ -276,7 +296,7 @@ void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value) {
 	return;
 }
 
-int do_semantic(token_list *tok_list)
+int do_semantic(token_list *tok_list, int *p_cmd_type)
 {
 	int rc = 0, cur_cmd = INVALID_STATEMENT;
 	bool unique = false;
@@ -320,6 +340,20 @@ int do_semantic(token_list *tok_list)
 		printf("SELECT statement\n");
 		cur_cmd = SELECT;
 		cur = cur->next;
+	} else if ((cur->tok_value == K_BACKUP) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_TO))) {
+		printf("BACKUP TO statement\n");
+		cur_cmd = BACKUP_TO_IMAGE;
+		cur = cur->next->next;
+	} else if ((cur->tok_value == K_RESTORE) &&
+		((cur->next != NULL) && (cur->next->tok_value == K_FROM))) {
+		printf("RESTORE FROM statement\n");
+		cur_cmd = RESTORE_FROM_IMAGE;
+		cur = cur->next->next;
+	} else if (cur->tok_value == K_ROLLFORWARD) {
+		printf("ROLLFORWARD statement\n");
+		cur_cmd = ROLLFORWARD;
+		cur = cur->next;
 	} else {
 		printf("Invalid statement\n");
 		rc = cur_cmd;
@@ -356,6 +390,7 @@ int do_semantic(token_list *tok_list)
 		}
 	}
 
+	*p_cmd_type = cur_cmd;
 	return rc;
 }
 
@@ -2475,4 +2510,20 @@ int save_records_to_file(table_file_header * const tab_header, record_row * cons
 	}
 
 	return rc;
+}
+
+int write_log_with_timestamp(const char *msg, time_t timestamp) {
+	FILE *fhandle = fopen("db.log", "a");
+	if (!fhandle) {
+		return FILE_OPEN_ERROR;
+	}
+
+	char timestamp_text[MAX_STRING_LEN];
+	// Convert time to struct tm form in GMT.
+	struct tm *t = localtime(&timestamp);
+	// Format is "yyyymmddhhmmss".
+	sprintf(timestamp_text, "%d%02d%02d%02d%02d%02d", 1900 + t->tm_year, 1 + t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
+	fprintf(fhandle, "%s \"%s\"\n", timestamp_text, msg);
+	fclose(fhandle);
+	return 0;
 }
