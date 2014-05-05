@@ -220,9 +220,11 @@ namespace sjsu_cs257_test
 
 		TEST_METHOD(InvalidBackupStatements)
 		{
-			Assert::AreEqual(static_cast<int>(INVALID_STATEMENT), execute_statement("BACKUP"), L"Return code");
-			Assert::AreEqual(static_cast<int>(INVALID_STATEMENT), execute_statement("BACKUP TO imgfile 123"), L"Return code");
-			Assert::AreEqual(static_cast<int>(INVALID_BACKUP_FILENAME), execute_statement("BACKUP TO 123"), L"Return code");
+			Assert::AreEqual(static_cast<int>(INVALID_STATEMENT), execute_statement("BACKUP"), L"Incomplete statement.");
+			Assert::AreEqual(static_cast<int>(INVALID_STATEMENT), execute_statement("BACKUP TO imgfile 123"), L"Too many arguments.");
+			Assert::AreEqual(static_cast<int>(INVALID_BACKUP_FILENAME), execute_statement("BACKUP TO 123"), L"Not a valid backup filename.");
+			Assert::AreEqual(0, execute_statement("BACKUP TO backup_img"), L"Backup is successful.");
+			Assert::AreEqual(static_cast<int>(BACKUP_FILE_EXISTS), execute_statement("BACKUP TO backup_img"), L"Backup file already exists.");
 		}
 
 		TEST_METHOD(BackupStatement)

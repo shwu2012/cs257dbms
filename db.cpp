@@ -1236,8 +1236,8 @@ int sem_backup(token_list *t_list) {
 
 	const char *img_file_name = cur->tok_string;
 	// Make sure the backup file doesn't exist.
-	FILE *fhandle = NULL;
-	if (fopen(img_file_name, "r") != NULL) {
+	FILE *fhandle = fopen(img_file_name, "rb");
+	if (fhandle != NULL) {
 		fclose(fhandle);
 		rc = BACKUP_FILE_EXISTS;
 		return rc;
