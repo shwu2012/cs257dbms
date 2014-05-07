@@ -1196,7 +1196,7 @@ int sem_insert(token_list *t_list) {
 	for (int i = 0; i < num_values; i++) {
 		field_value_ptrs[i] = &field_values[i];
 	}
-	fill_raw_record_bytes(cd_entries, field_value_ptrs, num_values, record_bytes, sizeof(tab_header->record_size));
+	fill_raw_record_bytes(cd_entries, field_value_ptrs, num_values, record_bytes, tab_header->record_size);
 
 	// Append the new record to the .tab file.
 	char table_filename[MAX_IDENT_LEN + 5];

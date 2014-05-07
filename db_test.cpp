@@ -95,6 +95,42 @@ namespace sjsu_cs257_test
 			Assert::AreEqual(0, execute_statement("INSERT INTO BOOK VALUES('Master Thesis: Machine Learning', 'unknown', NULL)"), L"Return code");
 		}
 
+		TEST_METHOD(Insert_ZeroedBytesBetweenStoredData)
+		{
+			Assert::AreEqual(0, execute_statement("INSERT INTO BOOK VALUES('A', 'B', NULL)"), L"Return code");
+			FILE *f_table = fopen("BOOK.tab", "rb");
+			Assert::IsNotNull(f_table);
+			fseek(f_table, sizeof(table_file_header), SEEK_SET);
+			char byte;
+			// "title" field
+			fread(&byte, sizeof(char), 1, f_table); // skip 8-bit length
+			for (int i = 0; i < 50; i++) {
+				fread(&byte, sizeof(char), 1, f_table);
+				if (i == 0) {
+					Assert::AreEqual('A', byte);
+				} else {
+					Assert::AreEqual('\0', byte);
+				}
+			}
+			// "author" field
+			fread(&byte, sizeof(char), 1, f_table); // skip 8-bit length
+			for (int i = 0; i < 50; i++) {
+				fread(&byte, sizeof(char), 1, f_table);
+				if (i == 0) {
+					Assert::AreEqual('B', byte);
+				} else {
+					Assert::AreEqual('\0', byte);
+				}
+			}
+			// "copies" field
+			fread(&byte, sizeof(char), 1, f_table); // skip 8-bit length
+			for (int i = 0; i < 4; i++) {
+				fread(&byte, sizeof(char), 1, f_table);
+				Assert::AreEqual('\0', byte);
+			}
+			fclose(f_table);
+		}
+
 		TEST_METHOD(InsertDataTypeMismatch)
 		{
 			Assert::AreEqual(static_cast<int>(DATA_TYPE_MISMATCH), execute_statement("INSERT INTO BOOK VALUES(1234, 'Peter Harrington', 1337)"), L"Return code");
