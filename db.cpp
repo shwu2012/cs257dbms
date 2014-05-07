@@ -2316,8 +2316,8 @@ void print_record_row(cd_entry *sorted_cd_entries[], int num_cols, record_row *r
 
 int get_cd_entry_index(cd_entry cd_entries[], int num_cols, char *col_name) {
 	for (int i = 0; i < num_cols; i++) {
-		// Column names are case sensitive.
-		if (strcmp(cd_entries[i].col_name, col_name) == 0) {
+		// Column names are case-insensitive.
+		if (stricmp(cd_entries[i].col_name, col_name) == 0) {
 			return i;
 		}
 	}

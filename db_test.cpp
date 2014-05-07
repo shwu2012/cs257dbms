@@ -68,7 +68,7 @@ namespace sjsu_cs257_test
 		}
 	};
 
-	TEST_CLASS(InsertTest)
+	TEST_CLASS(InsertAndSelectTest)
 	{
 	public:
 
@@ -89,10 +89,24 @@ namespace sjsu_cs257_test
 			free(g_tpd_list);
 		}
 
-		TEST_METHOD(InsertSuccessfully)
+		TEST_METHOD(InsertThenSelect_OK)
 		{
 			Assert::AreEqual(0, execute_statement("INSERT INTO BOOK VALUES('Machine Learning in Action', 'Peter Harrington', 1337)"), L"Return code");
 			Assert::AreEqual(0, execute_statement("INSERT INTO BOOK VALUES('Master Thesis: Machine Learning', 'unknown', NULL)"), L"Return code");
+			Assert::AreEqual(0, execute_statement("SELECT * FROM BOOK"), L"Return code");
+			Assert::AreEqual(0, execute_statement("SELECT copies FROM BOOK"), L"select 1 column");
+			Assert::AreEqual(0, execute_statement("SELECT author,title FROM BOOK"), L"select 2 columns");
+			Assert::AreEqual(0, execute_statement("SELECT title,copies,title FROM BOOK"), L"select duplicated 3 columns");
+			Assert::AreEqual(0, execute_statement("SELECT Author,tiTLE,COPIES FROM BOOK"), L"column names are case-insensitive");
+		}
+
+		TEST_METHOD(InsertThenSelect_Failure)
+		{
+			Assert::AreEqual(0, execute_statement("INSERT INTO BOOK VALUES('Machine Learning in Action', 'Peter Harrington', 1337)"), L"Return code");
+			Assert::AreEqual(0, execute_statement("INSERT INTO BOOK VALUES('Master Thesis: Machine Learning', 'unknown', NULL)"), L"Return code");
+			Assert::AreEqual(static_cast<int>(INVALID_COLUMN_NAME), execute_statement("SELECT *,* FROM BOOK"), L"duplicated wildcard columns");
+			Assert::AreEqual(static_cast<int>(INVALID_COLUMN_NAME), execute_statement("SELECT *,copies FROM BOOK"), L"non-unique first wildcard column");
+			Assert::AreEqual(static_cast<int>(INVALID_COLUMN_NAME), execute_statement("SELECT author,title,* FROM BOOK"), L"non-unique last wildcard column");
 		}
 
 		TEST_METHOD(Insert_ZeroedBytesBetweenStoredData)
