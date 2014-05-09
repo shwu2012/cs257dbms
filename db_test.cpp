@@ -230,7 +230,7 @@ namespace sjsu_cs257_test
 		{
 			time_t ts = 1399249287L; // Sunday, May 04, 2014 5:21:27 PM GMT-7
 			std::string msg("any SQL statement");
-			write_log_with_timestamp(msg.c_str(), ts);
+			append_log_with_timestamp(msg.c_str(), ts);
 			std::ifstream input(kDbLogFile);
 			std::string line;
 			std::string expected_log_entry("20140504172127");
@@ -336,7 +336,6 @@ namespace sjsu_cs257_test
 				Assert::AreEqual(byte_in_source_file, byte_in_backup_file, msg);
 				num_bytes++;
 			}
-			
 
 			fclose(f_dbfile);
 			fclose(f_table1);

@@ -76,7 +76,7 @@ int execute_statement(char *statement) {
 				case DELETE:
 				case UPDATE:
 					// Log '<timestamp> "original DDL/DML statement within double quotes"'
-					write_log_with_timestamp(statement, current_timestamp());
+					append_log_with_timestamp(statement, current_timestamp());
 					break;
 				}
 			}
@@ -385,12 +385,111 @@ int do_semantic(token_list *tok_list, int *p_cmd_type)
 		case BACKUP_TO_IMAGE:
 			rc = sem_backup(cur);
 			break;
+		case RESTORE_FROM_IMAGE:
+			rc = sem_restore(cur);
+			break;
+		case ROLLFORWARD:
+			rc = sem_rollforward(cur);
+			break;
 		default:
 			; /* no action */
 		}
 	}
 
 	*p_cmd_type = cur_cmd;
+	return rc;
+}
+
+int sem_restore(token_list *t_list) {
+	int rc = 0;
+	token_list *cur = t_list;
+	if (!can_be_identifier(cur)) {
+			// Error
+			rc = INVALID_BACKUP_FILENAME;
+			cur->tok_value = INVALID;
+			return rc;
+	}
+
+	char *img_file_name = cur->tok_string;
+	if (!is_file_readable(img_file_name, false)) {
+		rc = MISSING_BACKUP_FILE;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+	char matching_log_text[MAX_LOG_ENTRY_TEXT_LEN + 1];
+	sprintf(matching_log_text, "BACKUP %s", img_file_name);
+
+	cur = cur->next;
+	bool without_rf = false;
+	if (cur->tok_value != EOC) {
+		if (cur->tok_value == K_WITHOUT && cur->next->tok_value == K_RF) {
+			without_rf = true;
+			cur = cur->next->next;
+			if (cur->tok_value != EOC) {
+				rc = INVALID_STATEMENT;
+				cur->tok_value = INVALID;
+				return rc;
+			}
+		} else {
+			rc = INVALID_STATEMENT;
+			cur->tok_value = INVALID;
+			return rc;
+		}
+	}
+
+	if (without_rf) {
+		// "WITHOUT RF" is specified.
+
+		// Overwrite db and table files.
+		if (rc = restore_from_backup_file(img_file_name)) {
+			return rc;
+		}
+
+		// Prune the log entries after the BACKUP tag in the log file.
+		log_entry *log_entry_head = NULL;
+		if (rc = scan_log(&log_entry_head)) {
+			return rc;
+		}
+		log_entry *cur_entry = log_entry_head;
+		log_entry *backup_entry = NULL;
+		while (cur_entry) {
+			if (stricmp(matching_log_text, cur_entry->text) == 0) {
+				backup_entry = cur_entry; // found BACKUP log entry 
+				break;
+			}
+			cur_entry = cur_entry->next;
+		}
+		if (backup_entry) {
+			cur_entry = log_entry_head;
+			while (cur_entry) {
+				write_log(cur_entry->raw_text, cur_entry != log_entry_head);
+				if (cur_entry == backup_entry) {
+					break;
+				}
+				cur_entry = cur_entry->next;
+			}
+		} else {
+			rc = MISSING_BACKUP_LOG_ENTRY;
+		}
+		free_log_entries(log_entry_head);
+	} else {
+		// "WITHOUT RF" is not specified.
+
+		// TODO: Overwrite db and table files.
+
+		// TODO: Set ROLLFORWARD_PENDING flag and prevent further modification.
+
+		// Write log.
+		write_log("RF_START", true);
+	}
+
+	return rc;
+}
+
+int sem_rollforward(token_list *t_list) {
+	int rc = 0;
+	token_list *cur = t_list;
+	// TODO
 	return rc;
 }
 
@@ -885,7 +984,7 @@ int initialize_tpd_list()
 	{
 		/* There is a valid dbfile.bin file - get file size */
 		int file_size = get_file_size(fhandle);
-		printf("dbfile.bin size = %ld\n", file_size);
+		printf("%s size = %ld\n", kDbFile, file_size);
 		g_tpd_list = (tpd_list*)calloc(1, file_size);
 
 		if (!g_tpd_list)
@@ -1291,9 +1390,11 @@ int sem_backup(token_list *t_list) {
 	}
 
 	// Write log.
-	char log_msg[MAX_STRING_LEN];
-	sprintf(log_msg, "BACKUP %s", img_file_name);
-	write_log(log_msg);
+	if (!rc) {
+		char log_msg[MAX_STRING_LEN];
+		sprintf(log_msg, "BACKUP %s", img_file_name);
+		write_log(log_msg, true);
+	}
 
 	return rc;
 }
@@ -2589,28 +2690,89 @@ int save_records_to_file(table_file_header * const tab_header, record_row * cons
 	return rc;
 }
 
-int write_log_with_timestamp(const char *msg, time_t timestamp) {
-	FILE *fhandle = fopen(kDbLogFile, "a");
-	if (!fhandle) {
-		return FILE_OPEN_ERROR;
-	}
-
-	char timestamp_text[MAX_STRING_LEN];
-	// Convert time to struct tm form in GMT.
+int append_log_with_timestamp(const char *msg, time_t timestamp) {
+	char timestamp_text[MAX_LOG_ENTRY_TEXT_LEN + 1];
+	// Convert time to struct tm form in local time.
 	struct tm *t = localtime(&timestamp);
-	// Format is "yyyymmddhhmmss".
-	sprintf(timestamp_text, "%d%02d%02d%02d%02d%02d", 1900 + t->tm_year, 1 + t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
-	fprintf(fhandle, "%s \"%s\"\n", timestamp_text, msg);
-	fclose(fhandle);
-	return 0;
+	// Format is: yyyymmddhhmmss "SQL".
+	sprintf(timestamp_text, "%d%02d%02d%02d%02d%02d \"%s\"", 1900 + t->tm_year, 1 + t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, msg);
+	return write_log(timestamp_text, true);
 }
 
-int write_log(const char *msg) {
-	FILE *fhandle = fopen(kDbLogFile, "a");
+int write_log(const char *msg, bool is_append) {
+	FILE *fhandle = fopen(kDbLogFile, is_append ? "a" : "w");
 	if (!fhandle) {
 		return FILE_OPEN_ERROR;
 	}
 	fprintf(fhandle, "%s\n", msg);
 	fclose(fhandle);
+	return 0;
+}
+
+int scan_log(log_entry **pp_first_log_entry) {
+	FILE *fhandle = fopen(kDbLogFile, "r");
+	if (!fhandle) {
+		return FILE_OPEN_ERROR;
+	}
+	log_entry *p_head = NULL;
+	log_entry *p_cur = NULL;
+	char log_text[MAX_LOG_ENTRY_TEXT_LEN + 1];
+	while (fgets(log_text, sizeof(log_text), fhandle)) {
+		if (!(strlen(log_text) > 1)) { // skip empty line
+			continue;
+		}
+		if (p_cur == NULL) { // first log entry
+			p_cur = (log_entry*) malloc(sizeof(log_entry));
+			p_head = p_cur;
+		} else {
+			p_cur->next = (log_entry*) malloc(sizeof(log_entry));
+			p_cur = p_cur->next;
+		}
+		if (isdigit(log_text[0])) { // must be a DDL/DML statement with datetime
+			memcpy(p_cur->datetime, log_text, LOG_ENTRY_TIMESTAMP_LEN);
+			p_cur->datetime[LOG_ENTRY_TIMESTAMP_LEN] = '\0';
+			strcpy(p_cur->text, log_text + LOG_ENTRY_TIMESTAMP_LEN + 2);
+		} else { // a command without datetime
+			p_cur->datetime[0] = '\0';
+			strcpy(p_cur->text, log_text);
+		}
+		// Remove trailing double-quote and line-feed.
+		for (int i = strlen(p_cur->text) - 1; (p_cur->text[i] == '\n' || p_cur->text[i] == '"'); i--) {
+			p_cur->text[i] = '\0';
+		}
+		strcpy(p_cur->raw_text, log_text);
+		// Remove trailing line-feed for raw_text.
+		int l = strlen(p_cur->raw_text) - 1;
+		if (p_cur->raw_text[l] == '\n') {
+			p_cur->raw_text[l] = '\0';
+		}
+		p_cur->next = NULL;
+	}
+	fclose(fhandle);
+	*pp_first_log_entry = p_head;
+	return 0;
+}
+
+void free_log_entries(log_entry *p_first_log_entry) {
+	if (!p_first_log_entry) {
+		return;
+	}
+	log_entry *p = p_first_log_entry;
+	log_entry *temp = NULL;
+	while (p) {
+		temp = p;
+		p = p->next;
+		free(temp);
+	}
+}
+
+int restore_from_backup_file(char *backup_filename) {
+	// TODO: Reconstruct tpd_list and fetch table names.
+
+	// TODO: Overwrite table files.
+
+	// TODO: Deal with file error.
+
+	// TODO: Clean new .tab files that are created after generating the backup file.
 	return 0;
 }

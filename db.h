@@ -19,6 +19,9 @@ prototype for the db.exe program.
 #define KEYWORD_OFFSET 10
 #define STRING_BREAK " (),<>="
 #define NUMBER_BREAK " ),"
+#define ROLLFORWARD_PENDING 1
+#define LOG_ENTRY_TIMESTAMP_LEN 14
+#define MAX_LOG_ENTRY_TEXT_LEN 1000
 
 /* Constants */
 const char kDbFile[] = "dbfile.bin";
@@ -189,7 +192,10 @@ typedef enum return_codes_def {
 	FILE_REMOVE_ERROR, // -296
 	TABFILE_CORRUPTION, // -295
 	INVALID_BACKUP_FILENAME, // -294
-	BACKUP_FILE_EXISTS // -293
+	BACKUP_FILE_EXISTS, // -293
+	ROLLFORWARD_PENDING_ACCESS_VIOLATION, // -292
+	MISSING_BACKUP_LOG_ENTRY, // -291
+	MISSING_BACKUP_FILE // -290
 } return_codes;
 
 /* Table file structures in which we store records of that table */
@@ -248,6 +254,14 @@ typedef struct record_predicate_def {
 	record_condition conditions[MAX_NUM_CONDITION];
 } record_predicate;
 
+/* Log entry. */
+typedef struct log_entry_def {
+	char datetime[LOG_ENTRY_TIMESTAMP_LEN + 1];
+	char text[MAX_LOG_ENTRY_TEXT_LEN + 1];
+	char raw_text[MAX_LOG_ENTRY_TEXT_LEN + 1];
+	struct log_entry_def *next;
+} log_entry;
+
 /* Set of function prototypes */
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
@@ -261,6 +275,8 @@ int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
 int sem_backup(token_list *t_list);
+int sem_restore(token_list *t_list);
+int sem_rollforward(token_list *t_list);
 int initialize_tpd_list();
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
@@ -286,9 +302,11 @@ int records_comparator(const void *arg1, const void *arg2);
 void free_record_row(record_row *row, bool to_last);
 int save_records_to_file(table_file_header * const tab_header, record_row * const rows_head);
 int reload_global_tpd_list();
-int write_log_with_timestamp(const char *msg, time_t timestamp);
-int write_log(const char *msg);
-
+int append_log_with_timestamp(const char *msg, time_t timestamp);
+int write_log(const char *msg, bool is_append);
+int scan_log(log_entry **pp_first_log_entry);
+void free_log_entries(log_entry *p_first_log_entry);
+int restore_from_backup_file(char *backup_filename);
 
 /* inline functions */
 
@@ -326,6 +344,15 @@ inline void repeat_print_char(char c, int times) {
 	for (int i = 0; i < times; i++) {
 		printf("%c", c);
 	}
+}
+
+inline bool is_file_readable(char *filename, bool is_text_file) {
+	FILE *fhandle = fopen(filename, is_text_file ? "r" : "rb");
+	if (fhandle) {
+		fclose(fhandle);
+		return true;
+	}
+	return false;
 }
 
 inline time_t current_timestamp() {
