@@ -370,7 +370,8 @@ int do_semantic(token_list *tok_list, int *p_cmd_type) {
   } else {
     if (cur_cmd == ROLLFORWARD) {
       *p_cmd_type = cur_cmd;
-      rc = MISSING_ROLLFORWARD_PENDING_DB_FLAG;
+      rc = DB_NOT_IN_ROLLFORWARD_PENDING_STATE;
+      printf("Error - database is not in ROLLFORWARD_PENDING state.\n");
       return rc;
     }
   }
@@ -471,6 +472,9 @@ int sem_restore(token_list *t_list) {
       } else {
         // But we had found this BACKUP log entry before.
         rc = DUPLICATE_BACKUP_LOG_ENTRY;
+        printf(
+            "Error - transaction log contains duplicate backup image name "
+            "specified.\n");
         break;
       }
     }
@@ -478,6 +482,9 @@ int sem_restore(token_list *t_list) {
   }
   if (backup_entry == NULL) {
     rc = MISSING_BACKUP_LOG_ENTRY;
+    printf(
+        "Error - transaction log does not contain the backup image name "
+        "specified.\n");
   }
   if (rc) {
     free_log_entries(log_entry_head);
@@ -1359,6 +1366,7 @@ int sem_backup(token_list *t_list) {
   if (fhandle != NULL) {
     fclose(fhandle);
     rc = BACKUP_FILE_EXISTS;
+    printf("Error - duplicate backup image name.\n");
     cur->tok_value = INVALID;
     return rc;
   }

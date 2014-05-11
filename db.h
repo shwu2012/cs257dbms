@@ -200,7 +200,7 @@ typedef enum return_codes_def {
   DUPLICATE_BACKUP_LOG_ENTRY,            // -289
   MISSING_RF_START_LOG_ENTRY,            // -288
   DUPLICATE_RF_START_LOG_ENTRY,          // -287
-  MISSING_ROLLFORWARD_PENDING_DB_FLAG    // -286
+  DB_NOT_IN_ROLLFORWARD_PENDING_STATE    // -286
 } return_codes;
 
 /* Table file structures in which we store records of that table */
