@@ -394,7 +394,7 @@ inline time_t current_timestamp() {
 }
 
 inline bool is_a_sql_statement_log_entry(char *raw_text) {
-  return isdigit(raw_text[0]);
+  return isdigit(raw_text[0]) != 0;
 }
 
 /* Keep a global list of tpd which will be initialized in db.cpp */
