@@ -321,7 +321,7 @@ bool apply_row_predicate(cd_entry cd_entries[], int num_cols, record_row *p_row,
 bool eval_condition(record_condition *p_condition, field_value *p_field_value);
 void sort_records(record_row rows[], int num_records, cd_entry *p_sorting_col,
                   bool is_desc);
-int execute_statement(char *statement);
+int execute_statement(char *statement, int verbose);
 int records_comparator(const void *arg1, const void *arg2);
 void free_record_row(record_row *row, bool to_last);
 int save_records_to_file(table_file_header *const tab_header,

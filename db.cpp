@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int rc = execute_statement(argv[1]);
+  int rc = execute_statement(argv[1], 1);
 
   // Free g_tpd_list since all changes have been stored in files.
   free(g_tpd_list);
@@ -43,7 +43,7 @@ int reload_global_tpd_list() {
   return initialize_tpd_list(kDbFile, &g_tpd_list);
 }
 
-int execute_statement(char *statement) {
+int execute_statement(char *statement, int verbose) {
   token_list *tok_list = NULL, *tok_ptr = NULL;
   int rc = initialize_tpd_list(kDbFile, &g_tpd_list);
 
@@ -53,17 +53,19 @@ int execute_statement(char *statement) {
     rc = get_token(statement, &tok_list);
 
     // Show tokens for test purpose.
-    tok_ptr = tok_list;
-    printf("%16s %10s %10s\n", "Tokens: STRING", "CLASS", "VALUE");
-    repeat_print_char('-', 16 + 11 + 11);
-    printf("\n");
-    while (tok_ptr != NULL) {
-      printf("%16s %10d %10d\n", tok_ptr->tok_string, tok_ptr->tok_class,
-             tok_ptr->tok_value);
-      tok_ptr = tok_ptr->next;
+    if (verbose) {
+      tok_ptr = tok_list;
+      printf("%16s %10s %10s\n", "Tokens: STRING", "CLASS", "VALUE");
+      repeat_print_char('-', 16 + 11 + 11);
+      printf("\n");
+      while (tok_ptr != NULL) {
+        printf("%16s %10d %10d\n", tok_ptr->tok_string, tok_ptr->tok_class,
+               tok_ptr->tok_value);
+        tok_ptr = tok_ptr->next;
+      }
+      repeat_print_char('-', 16 + 11 + 11);
+      printf("\n\n");
     }
-    repeat_print_char('-', 16 + 11 + 11);
-    printf("\n\n");
 
     int cmd_type = INVALID_STATEMENT;
     if (!rc) {
@@ -78,7 +80,7 @@ int execute_statement(char *statement) {
       }
     }
 
-    if (rc) {
+    if (rc && verbose) {
       tok_ptr = tok_list;
       while (tok_ptr) {
         if ((tok_ptr->tok_class == TOKEN_CLASS_ERROR) ||
@@ -587,15 +589,15 @@ int sem_rollforward(token_list *t_list) {
     }
 
     if (is_a_sql_statement_log_entry(cur_entry->raw_text)) {
-      exec_rc = execute_statement(cur_entry->text);
-      //printf("redo: [%s] = %d\n", cur_entry->text, exec_rc);
+      exec_rc = execute_statement(cur_entry->text, 0);
+      // printf("redo: [%s] = %d\n", cur_entry->text, exec_rc);
     } else {
       // Change "BACKUP img" to "BACKUP TO img" then execute.
       // Length of "BACKUP TO " is 10, and length of "BACKUP " is 7.
       char cmd[MAX_IDENT_LEN + 10 + 1];
       sprintf(cmd, "BACKUP TO %s", cur_entry->text + 7);
-      exec_rc = execute_statement(cmd);
-      //printf("redo: [%s] = %d\n", cmd, exec_rc);
+      exec_rc = execute_statement(cmd, 0);
+      // printf("redo: [%s] = %d\n", cmd, exec_rc);
     }
     last_executed_entry = cur_entry;
     cur_entry = cur_entry->next;
@@ -1036,7 +1038,7 @@ int initialize_tpd_list(const char *db_filename, tpd_list **pp_tpd_list) {
   } else {
     /* There is a valid dbfile.bin file - get file size */
     int file_size = get_file_size(fhandle);
-    printf("%s size = %ld\n", kDbFile, file_size);
+    printf("%s size = %d\n", kDbFile, file_size);
     p_tpd_list = (tpd_list *)calloc(1, file_size);
 
     if (!p_tpd_list) {
