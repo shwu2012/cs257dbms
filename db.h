@@ -196,7 +196,8 @@ typedef enum return_codes_def {
 	BACKUP_FILE_EXISTS, // -293
 	ROLLFORWARD_PENDING_ACCESS_VIOLATION, // -292
 	MISSING_BACKUP_LOG_ENTRY, // -291
-	MISSING_BACKUP_FILE // -290
+	MISSING_BACKUP_FILE, // -290
+	DUPLICATE_BACKUP_LOG_ENTRY // -289
 } return_codes;
 
 /* Table file structures in which we store records of that table */
@@ -307,7 +308,7 @@ int append_log_with_timestamp(const char *msg, time_t timestamp);
 int write_log(const char *msg, bool is_append);
 int scan_log(log_entry **pp_first_log_entry);
 void free_log_entries(log_entry *p_first_log_entry);
-int restore_from_backup_file(char *backup_filename);
+int restore_from_backup_file(char *backup_filename, int db_flag);
 int list_tables(tpd_list *table_entries, void (*callback)(tpd_entry *table_entry));
 void print_table_name(tpd_entry *table_entry);
 void remove_table_file(tpd_entry *table_entry);

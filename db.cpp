@@ -447,13 +447,21 @@ int sem_restore(token_list *t_list) {
 	log_entry *backup_entry = NULL;
 	while (cur_entry) {
 		if (stricmp(matching_log_text, cur_entry->text) == 0) {
-			backup_entry = cur_entry; // found BACKUP log entry 
-			break;
+			// BACKUP log entry is found.
+			if (backup_entry == NULL) {
+				backup_entry = cur_entry;
+			} else {
+				// But we had found this BACKUP log entry before.
+				rc = DUPLICATE_BACKUP_LOG_ENTRY;
+				break;
+			}
 		}
 		cur_entry = cur_entry->next;
 	}
 	if (backup_entry == NULL) {
 		rc = MISSING_BACKUP_LOG_ENTRY;
+	}
+	if (rc) {
 		free_log_entries(log_entry_head);
 		return rc;
 	}
@@ -462,7 +470,7 @@ int sem_restore(token_list *t_list) {
 		// "WITHOUT RF" is specified.
 
 		// Overwrite db and table files.
-		if (rc = restore_from_backup_file(img_file_name)) {
+		if (rc = restore_from_backup_file(img_file_name, 0)) {
 			return rc;
 		}
 
@@ -478,12 +486,21 @@ int sem_restore(token_list *t_list) {
 	} else {
 		// "WITHOUT RF" is not specified.
 
-		// TODO: Overwrite db and table files.
+		// Overwrite db and table files.
+		// Set ROLLFORWARD_PENDING flag and prevent further modification.
+		if (rc = restore_from_backup_file(img_file_name, ROLLFORWARD_PENDING)) {
+			return rc;
+		}
 
-		// TODO: Set ROLLFORWARD_PENDING flag and prevent further modification.
-
-		// Write log.
-		write_log("RF_START", true);
+		// Write "RF_START" log on the line right after the "BACKUP <image>" log entry.
+		cur_entry = log_entry_head;
+		while (cur_entry) {
+			write_log(cur_entry->raw_text, cur_entry != log_entry_head);
+			if (cur_entry == backup_entry) {
+				write_log("RF_START", true);
+			}
+			cur_entry = cur_entry->next;
+		}
 	}
 
 	free_log_entries(log_entry_head);
@@ -2744,7 +2761,7 @@ void free_log_entries(log_entry *p_first_log_entry) {
 	}
 }
 
-int restore_from_backup_file(char *backup_filename) {
+int restore_from_backup_file(char *backup_filename, int db_flag) {
 	// Reconstruct tpd_list and fetch table names.
 	FILE *f_backup = fopen(backup_filename, "rb");
 	FILE *f_tmp_dbfile = fopen(kTempDbFile, "wb");
@@ -2760,11 +2777,14 @@ int restore_from_backup_file(char *backup_filename) {
 	// This tpd_list will NOT hold the whole db metadata.
 	// It is only used to determine the real size of the whole db metadata.
 	tpd_list tmp_tpd_list;
-	fread(&tmp_tpd_list, sizeof(tpd_list), 1, f_backup);
-	// Backup db file (from the beginning of the backup file)
-	rewind(f_backup);
+	fread(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, f_backup);
+	// Set db_flag.
+	tmp_tpd_list.db_flags = db_flag;
+	// Backup db file with db_flag.
+	fwrite(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, f_tmp_dbfile);
+	// Backup remaining bytes of the db file.
 	char byte;
-	for (int i = 0; i < tmp_tpd_list.list_size; i++) {
+	for (int i = sizeof(tmp_tpd_list); i < tmp_tpd_list.list_size; i++) {
 		fread(&byte, sizeof(byte), 1, f_backup);
 		fwrite(&byte, sizeof(byte), 1, f_tmp_dbfile);
 	}
