@@ -357,12 +357,18 @@ int do_semantic(token_list *tok_list, int *p_cmd_type) {
 
   // If ROLLFORWARD_PENDING is set in db_flags, we prevent further access to
   // any data changes, such as DDL, DML, BACKUP, and RESTORE commands.
-  if (g_tpd_list->db_flags == ROLLFORWARD_PENDING) {
+  if (g_tpd_list->db_flags & ROLLFORWARD_PENDING) {
     if (cur_cmd == CREATE_TABLE || cur_cmd == DROP_TABLE || cur_cmd == INSERT ||
         cur_cmd == DELETE || cur_cmd == UPDATE || cur_cmd == BACKUP_TO_IMAGE ||
         cur_cmd == RESTORE_FROM_IMAGE) {
       *p_cmd_type = cur_cmd;
       rc = ROLLFORWARD_PENDING_ACCESS_VIOLATION;
+      return rc;
+    }
+  } else {
+    if (cur_cmd == ROLLFORWARD) {
+      *p_cmd_type = cur_cmd;
+      rc = MISSING_ROLLFORWARD_PENDING_DB_FLAG;
       return rc;
     }
   }
@@ -521,7 +527,92 @@ int sem_restore(token_list *t_list) {
 int sem_rollforward(token_list *t_list) {
   int rc = 0;
   token_list *cur = t_list;
-  // TODO: ROLLFORWARD command.
+
+  bool has_to_timestamp = false;
+  char timestamp_text[MAX_STRING_LEN + 1];
+  // TODO: Use string as timestamp now, but need to create a new token type for
+  // timestamp.
+  if (cur->tok_value == K_TO && cur->next != NULL &&
+      cur->next->tok_value == STRING_LITERAL) {
+    has_to_timestamp = true;
+    strcpy(timestamp_text, cur->next->tok_string);
+    cur = cur->next->next;
+  }
+  if (cur->tok_value != EOC) {
+    rc = INVALID_STATEMENT;
+    cur->tok_value = INVALID;
+    return rc;
+  }
+
+  // If RF_START is missing from log, fail the command.
+  log_entry *log_entry_head = NULL;
+  if (rc = scan_log(&log_entry_head)) {
+    return rc;
+  }
+  log_entry *cur_entry = log_entry_head;
+  log_entry *rf_start_entry = NULL;
+  while (cur_entry) {
+    if (stricmp("RF_START", cur_entry->text) == 0) {
+      // RF_START log entry is found.
+      if (rf_start_entry == NULL) {
+        rf_start_entry = cur_entry;
+      } else {
+        // But we had found this RF_START log entry before.
+        rc = DUPLICATE_RF_START_LOG_ENTRY;
+        break;
+      }
+    }
+    cur_entry = cur_entry->next;
+  }
+  if (rf_start_entry == NULL) {
+    rc = MISSING_RF_START_LOG_ENTRY;
+  } else if (!rc) {
+    // Reset the db_flag = 0 in the tpd_list.
+    rc = update_db_flags(0);
+  }
+  if (rc) {
+    free_log_entries(log_entry_head);
+    return rc;
+  }
+
+  // Redo each log entry after RF_START.
+  log_entry *last_executed_entry = NULL;
+  cur_entry = rf_start_entry->next;
+  int exec_rc = 0;
+  while (cur_entry) {
+    // Check timestamp.
+    if (has_to_timestamp && strlen(cur_entry->datetime) > 0 &&
+        strcmp(cur_entry->datetime, timestamp_text) > 0) {
+      break;
+    }
+
+    if (is_a_sql_statement_log_entry(cur_entry->raw_text)) {
+      exec_rc = execute_statement(cur_entry->text);
+      //printf("redo: [%s] = %d\n", cur_entry->text, exec_rc);
+    } else {
+      // Change "BACKUP img" to "BACKUP TO img" then execute.
+      // Length of "BACKUP TO " is 10, and length of "BACKUP " is 7.
+      char cmd[MAX_IDENT_LEN + 10 + 1];
+      sprintf(cmd, "BACKUP TO %s", cur_entry->text + 7);
+      exec_rc = execute_statement(cmd);
+      //printf("redo: [%s] = %d\n", cmd, exec_rc);
+    }
+    last_executed_entry = cur_entry;
+    cur_entry = cur_entry->next;
+  }
+
+  // Remove the RF_START log entry and prune log entries later than timestamp.
+  cur_entry = log_entry_head;
+  while (cur_entry) {
+    if (cur_entry != rf_start_entry) {
+      write_log(cur_entry->raw_text, cur_entry != log_entry_head);
+      if (cur_entry == last_executed_entry) {
+        break;
+      }
+    }
+    cur_entry = cur_entry->next;
+  }
+
   return rc;
 }
 
@@ -2744,7 +2835,8 @@ int scan_log(log_entry **pp_first_log_entry) {
       p_cur->next = (log_entry *)malloc(sizeof(log_entry));
       p_cur = p_cur->next;
     }
-    if (isdigit(log_text[0])) {  // must be a DDL/DML statement with datetime
+    if (is_a_sql_statement_log_entry(
+            log_text)) {  // a DDL/DML statement with datetime
       memcpy(p_cur->datetime, log_text, LOG_ENTRY_TIMESTAMP_LEN);
       p_cur->datetime[LOG_ENTRY_TIMESTAMP_LEN] = '\0';
       strcpy(p_cur->text, log_text + LOG_ENTRY_TIMESTAMP_LEN + 2);
@@ -2783,7 +2875,7 @@ void free_log_entries(log_entry *p_first_log_entry) {
   }
 }
 
-int restore_from_backup_file(char *backup_filename, int db_flag) {
+int restore_from_backup_file(char *backup_filename, int db_flags) {
   // Reconstruct tpd_list and fetch table names.
   FILE *f_backup = fopen(backup_filename, "rb");
   FILE *f_tmp_dbfile = fopen(kTempDbFile, "wb");
@@ -2800,8 +2892,8 @@ int restore_from_backup_file(char *backup_filename, int db_flag) {
   // It is only used to determine the real size of the whole db metadata.
   tpd_list tmp_tpd_list;
   fread(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, f_backup);
-  // Set db_flag.
-  tmp_tpd_list.db_flags = db_flag;
+  // Set db_flags.
+  tmp_tpd_list.db_flags = db_flags;
   // Backup db file with db_flag.
   fwrite(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, f_tmp_dbfile);
   // Backup remaining bytes of the db file.
@@ -2879,4 +2971,19 @@ int list_tables(tpd_list *table_entries,
     }
   }
   return num_tables;
+}
+
+int update_db_flags(int db_flags) {
+  FILE *fhandle = fopen(kDbFile, "r+b");
+  if (fhandle == NULL) {
+    return FILE_OPEN_ERROR;
+  }
+  tpd_list tmp_tpd_list;
+  fread(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, fhandle);
+  tmp_tpd_list.db_flags = db_flags;
+  rewind(fhandle);
+  fwrite(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, fhandle);
+  fclose(fhandle);
+  g_tpd_list->db_flags = db_flags;
+  return 0;
 }
