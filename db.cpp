@@ -39,12 +39,13 @@ int main(int argc, char** argv) {
 
 int reload_global_tpd_list() {
 	free(g_tpd_list);
-	return initialize_tpd_list();
+	g_tpd_list = NULL;
+	return initialize_tpd_list(kDbFile, &g_tpd_list);
 }
 
 int execute_statement(char *statement) {
 	token_list *tok_list = NULL, *tok_ptr = NULL;
-	int rc = initialize_tpd_list();
+	int rc = initialize_tpd_list(kDbFile, &g_tpd_list);
 
 	if (rc) {
 		printf("\nError in initialize_tpd_list().\nrc = %d\n", rc);
@@ -84,14 +85,14 @@ int execute_statement(char *statement) {
 
 		if (rc) {
 			tok_ptr = tok_list;
-			while (tok_ptr != NULL) {
+			while (tok_ptr) {
 				if ((tok_ptr->tok_class == TOKEN_CLASS_ERROR) || (tok_ptr->tok_value == INVALID)) {
 					printf("\nError in the string: %s\n", tok_ptr->tok_string);
-					printf("rc=%d\n", rc);
 					break;
 				}
 				tok_ptr = tok_ptr->next;
 			}
+			printf("rc=%d\n", rc);
 		}
 
 		// Whether the token list is valid or not, we need to free the memory.
@@ -938,61 +939,45 @@ int sem_list_schema(token_list *t_list)
 	return rc;
 }
 
-int initialize_tpd_list()
-{
+int initialize_tpd_list(const char* db_filename, tpd_list** pp_tpd_list) {
 	int rc = 0;
+	tpd_list *p_tpd_list = NULL;
+
 	FILE *fhandle = NULL;
-
 	/* Open for read */
-	if ((fhandle = fopen(kDbFile, "rbc")) == NULL)
-	{
+	if ((fhandle = fopen(kDbFile, "rbc")) == NULL) {
 		// DB file "dbfile.bin" doesn't exist, so create it.
-		if ((fhandle = fopen(kDbFile, "wbc")) == NULL)
-		{
+		if ((fhandle = fopen(kDbFile, "wbc")) == NULL) {
 			rc = FILE_OPEN_ERROR;
-		}
-		else
-		{
-			g_tpd_list = NULL;
-			g_tpd_list = (tpd_list*)calloc(1, sizeof(tpd_list));
-
-			if (!g_tpd_list)
-			{
+		} else {
+			p_tpd_list = (tpd_list*)calloc(1, sizeof(tpd_list));
+			if (!p_tpd_list) {
 				rc = MEMORY_ERROR;
-			}
-			else
-			{
-				g_tpd_list->list_size = sizeof(tpd_list);
-				fwrite(g_tpd_list, sizeof(tpd_list), 1, fhandle);
+			} else {
+				p_tpd_list->list_size = sizeof(tpd_list);
+				fwrite(p_tpd_list, sizeof(tpd_list), 1, fhandle);
 				fflush(fhandle);
 				fclose(fhandle);
 			}
 		}
-	}
-	else
-	{
+	} else {
 		/* There is a valid dbfile.bin file - get file size */
 		int file_size = get_file_size(fhandle);
 		printf("%s size = %ld\n", kDbFile, file_size);
-		g_tpd_list = (tpd_list*)calloc(1, file_size);
+		p_tpd_list = (tpd_list*)calloc(1, file_size);
 
-		if (!g_tpd_list)
-		{
+		if (!p_tpd_list) {
 			rc = MEMORY_ERROR;
-		}
-		else
-		{
-			fread(g_tpd_list, file_size, 1, fhandle);
+		} else {
+			fread(p_tpd_list, file_size, 1, fhandle);
 			fclose(fhandle);
-
-			if (g_tpd_list->list_size != file_size)
-			{
+			if (p_tpd_list->list_size != file_size) {
 				rc = DBFILE_CORRUPTION;
 			}
-
 		}
 	}
 
+	*pp_tpd_list = p_tpd_list;
 	return rc;
 }
 
@@ -1328,6 +1313,7 @@ int sem_backup(token_list *t_list) {
 	if (fhandle != NULL) {
 		fclose(fhandle);
 		rc = BACKUP_FILE_EXISTS;
+		cur->tok_value = INVALID;
 		return rc;
 	}
 
@@ -2756,14 +2742,82 @@ void free_log_entries(log_entry *p_first_log_entry) {
 }
 
 int restore_from_backup_file(char *backup_filename) {
-	// TODO: Reconstruct tpd_list and fetch table names.
+	// Reconstruct tpd_list and fetch table names.
+	FILE *f_backup = fopen(backup_filename, "rb");
+	FILE *f_tmp_dbfile = fopen(kTempDbFile, "wb");
+	if (f_backup == NULL || f_tmp_dbfile == NULL) {
+		if (f_backup) {
+			fclose(f_backup);
+		}
+		if (f_tmp_dbfile) {
+			fclose(f_tmp_dbfile);
+		}
+		return FILE_OPEN_ERROR;
+	}
+	// This tpd_list will NOT hold the whole db metadata.
+	// It is only used to determine the real size of the whole db metadata.
+	tpd_list tmp_tpd_list;
+	fread(&tmp_tpd_list, sizeof(tpd_list), 1, f_backup);
+	// Backup db file (from the beginning of the backup file)
+	rewind(f_backup);
+	char byte;
+	for (int i = 0; i < tmp_tpd_list.list_size; i++) {
+		fread(&byte, sizeof(byte), 1, f_backup);
+		fwrite(&byte, sizeof(byte), 1, f_tmp_dbfile);
+	}
+	fclose(f_tmp_dbfile);
+	tpd_list *p_tpd_list = NULL;
+	initialize_tpd_list(kTempDbFile, &p_tpd_list);
 
-	// TODO: Overwrite table files.
+	// Backup .tab file for each table.
+	tpd_entry *cur_entry = &(p_tpd_list->tpd_start);
+	for (int i = 0; i < p_tpd_list->num_tables; i++) {
+		// Get table file size.
+		int32_t table_file_size;
+		fread(&table_file_size, sizeof(table_file_size), 1, f_backup);
+		// Writing table file as a .tab.temp file.
+		char table_filename[MAX_IDENT_LEN + 10];
+		sprintf(table_filename, "%s.tab.temp", cur_entry->table_name);
+		FILE *f_tmp_tab_file = fopen(table_filename, "wc");
+		if (f_tmp_tab_file == NULL) {
+			return FILE_OPEN_ERROR;
+		}
+		for (int i = 0; i < table_file_size; i++) {
+			fread(&byte, sizeof(byte), 1, f_backup);
+			fwrite(&byte, sizeof(byte), 1, f_tmp_tab_file);
+		}
+		fclose(f_tmp_tab_file);
 
-	// TODO: Deal with file error.
+		cur_entry = (tpd_entry*)((char*)cur_entry + cur_entry->tpd_size); // next table
+	}
+	fclose(f_backup);
 
-	// TODO: Clean new .tab files that are created after generating the backup file.
+	// Remove old dbfile and .tab files.
+	remove(kDbFile);
+	list_tables(g_tpd_list, remove_table_file);
+
+	// Rename ".temp" suffix for all reconstructed files.
+	rename(kTempDbFile, kDbFile);
+	list_tables(p_tpd_list, rename_table_file);
+
+	// Refresh g_tpd_list.
+	free(g_tpd_list);
+	g_tpd_list = p_tpd_list;
 	return 0;
+}
+
+void remove_table_file(tpd_entry *table_entry) {
+	char filename[MAX_IDENT_LEN + 5];
+	sprintf(filename, "%s.tab", table_entry->table_name);
+	remove(filename);
+}
+
+void rename_table_file(tpd_entry *table_entry) {
+	char src_filename[MAX_IDENT_LEN + 10];
+	sprintf(src_filename, "%s.tab.temp", table_entry->table_name);
+	char dst_filename[MAX_IDENT_LEN + 5];
+	sprintf(dst_filename, "%s.tab", table_entry->table_name);
+	rename(src_filename, dst_filename);
 }
 
 int list_tables(tpd_list *table_entries, void (*callback)(tpd_entry *table_entry)) {

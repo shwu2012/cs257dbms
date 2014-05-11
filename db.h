@@ -25,6 +25,7 @@ prototype for the db.exe program.
 
 /* Constants */
 const char kDbFile[] = "dbfile.bin";
+const char kTempDbFile[] = "dbfile.bin.temp";
 const char kDbLogFile[] = "db.log";
 
 /* Column descriptor sturcture = 20+4+4+4+4 = 36 bytes */
@@ -277,7 +278,7 @@ int sem_update(token_list *t_list);
 int sem_backup(token_list *t_list);
 int sem_restore(token_list *t_list);
 int sem_rollforward(token_list *t_list);
-int initialize_tpd_list();
+int initialize_tpd_list(const char* db_filename, tpd_list** pp_tpd_list);
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);
 tpd_entry* get_tpd_from_list(char *tabname);
@@ -309,6 +310,8 @@ void free_log_entries(log_entry *p_first_log_entry);
 int restore_from_backup_file(char *backup_filename);
 int list_tables(tpd_list *table_entries, void (*callback)(tpd_entry *table_entry));
 void print_table_name(tpd_entry *table_entry);
+void remove_table_file(tpd_entry *table_entry);
+void rename_table_file(tpd_entry *table_entry);
 
 /* inline functions */
 
