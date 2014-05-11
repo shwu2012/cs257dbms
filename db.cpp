@@ -438,6 +438,26 @@ int sem_restore(token_list *t_list) {
 		}
 	}
 
+	// Scan and check the matching BACKUP log entry.
+	log_entry *log_entry_head = NULL;
+	if (rc = scan_log(&log_entry_head)) {
+		return rc;
+	}
+	log_entry *cur_entry = log_entry_head;
+	log_entry *backup_entry = NULL;
+	while (cur_entry) {
+		if (stricmp(matching_log_text, cur_entry->text) == 0) {
+			backup_entry = cur_entry; // found BACKUP log entry 
+			break;
+		}
+		cur_entry = cur_entry->next;
+	}
+	if (backup_entry == NULL) {
+		rc = MISSING_BACKUP_LOG_ENTRY;
+		free_log_entries(log_entry_head);
+		return rc;
+	}
+
 	if (without_rf) {
 		// "WITHOUT RF" is specified.
 
@@ -447,32 +467,14 @@ int sem_restore(token_list *t_list) {
 		}
 
 		// Prune the log entries after the BACKUP tag in the log file.
-		log_entry *log_entry_head = NULL;
-		if (rc = scan_log(&log_entry_head)) {
-			return rc;
-		}
-		log_entry *cur_entry = log_entry_head;
-		log_entry *backup_entry = NULL;
+		cur_entry = log_entry_head;
 		while (cur_entry) {
-			if (stricmp(matching_log_text, cur_entry->text) == 0) {
-				backup_entry = cur_entry; // found BACKUP log entry 
+			write_log(cur_entry->raw_text, cur_entry != log_entry_head);
+			if (cur_entry == backup_entry) {
 				break;
 			}
 			cur_entry = cur_entry->next;
 		}
-		if (backup_entry) {
-			cur_entry = log_entry_head;
-			while (cur_entry) {
-				write_log(cur_entry->raw_text, cur_entry != log_entry_head);
-				if (cur_entry == backup_entry) {
-					break;
-				}
-				cur_entry = cur_entry->next;
-			}
-		} else {
-			rc = MISSING_BACKUP_LOG_ENTRY;
-		}
-		free_log_entries(log_entry_head);
 	} else {
 		// "WITHOUT RF" is not specified.
 
@@ -484,6 +486,7 @@ int sem_restore(token_list *t_list) {
 		write_log("RF_START", true);
 	}
 
+	free_log_entries(log_entry_head);
 	return rc;
 }
 
