@@ -69,17 +69,13 @@ int execute_statement(char *statement) {
 			rc = do_semantic(tok_list, &cmd_type);
 
 			// Log command if it is executed successfully.
-			if (!rc) {
-				switch(cmd_type) {
-				case CREATE_TABLE:
-				case DROP_TABLE:
-				case INSERT:
-				case DELETE:
-				case UPDATE:
+			if ((!rc) && (cmd_type == CREATE_TABLE ||
+				cmd_type == DROP_TABLE ||
+				cmd_type == INSERT ||
+				cmd_type == DELETE ||
+				cmd_type == UPDATE)) {
 					// Log '<timestamp> "original DDL/DML statement within double quotes"'
 					append_log_with_timestamp(statement, current_timestamp());
-					break;
-				}
 			}
 		}
 
@@ -355,6 +351,22 @@ int do_semantic(token_list *tok_list, int *p_cmd_type)
 	} else {
 		printf("Invalid statement\n");
 		rc = cur_cmd;
+	}
+
+	// If ROLLFORWARD_PENDING is set in db_flags, we prevent further access to
+	// any data changes, such as DDL, DML, BACKUP, and RESTORE commands.
+	if (g_tpd_list->db_flags == ROLLFORWARD_PENDING) {
+		if (cur_cmd == CREATE_TABLE ||
+			cur_cmd == DROP_TABLE ||
+			cur_cmd == INSERT ||
+			cur_cmd == DELETE ||
+			cur_cmd == UPDATE ||
+			cur_cmd == BACKUP_TO_IMAGE ||
+			cur_cmd == RESTORE_FROM_IMAGE) {
+				*p_cmd_type = cur_cmd;
+				rc = ROLLFORWARD_PENDING_ACCESS_VIOLATION;
+				return rc;
+		}
 	}
 
 	if (cur_cmd != INVALID_STATEMENT) {
