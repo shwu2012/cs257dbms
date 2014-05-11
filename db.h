@@ -307,6 +307,8 @@ int write_log(const char *msg, bool is_append);
 int scan_log(log_entry **pp_first_log_entry);
 void free_log_entries(log_entry *p_first_log_entry);
 int restore_from_backup_file(char *backup_filename);
+int list_tables(tpd_list *table_entries, void (*callback)(tpd_entry *table_entry));
+void print_table_name(tpd_entry *table_entry);
 
 /* inline functions */
 

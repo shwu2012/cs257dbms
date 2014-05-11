@@ -489,7 +489,7 @@ int sem_restore(token_list *t_list) {
 int sem_rollforward(token_list *t_list) {
 	int rc = 0;
 	token_list *cur = t_list;
-	// TODO
+	// TODO: ROLLFORWARD command.
 	return rc;
 }
 
@@ -780,32 +780,21 @@ int sem_drop_table(token_list *t_list)
 	return rc;
 }
 
-int sem_list_tables()
-{
-	int rc = 0;
-	int num_tables = g_tpd_list->num_tables;
-	tpd_entry *cur = &(g_tpd_list->tpd_start);
+void print_table_name(tpd_entry *table_entry) {
+	printf("%s\n", table_entry->table_name);
+}
 
-	if (num_tables == 0)
-	{
+int sem_list_tables() {
+	if (g_tpd_list->num_tables == 0) {
 		printf("\nThere are currently no tables defined\n");
-	}
-	else
-	{
+	} else {
 		printf("\nTable List\n");
 		printf("*****************\n");
-		while (num_tables-- > 0)
-		{
-			printf("%s\n", cur->table_name);
-			if (num_tables > 0)
-			{
-				cur = (tpd_entry*)((char*)cur + cur->tpd_size);
-			}
-		}
+		list_tables(g_tpd_list, print_table_name);
 		printf("****** End ******\n");
 	}
 
-	return rc;
+	return 0;
 }
 
 int sem_list_schema(token_list *t_list)
@@ -2775,4 +2764,18 @@ int restore_from_backup_file(char *backup_filename) {
 
 	// TODO: Clean new .tab files that are created after generating the backup file.
 	return 0;
+}
+
+int list_tables(tpd_list *table_entries, void (*callback)(tpd_entry *table_entry)) {
+	int num_tables = table_entries->num_tables;
+	if (num_tables > 0) {
+		tpd_entry *cur_entry = &(table_entries->tpd_start);
+		for (int i = 0; i < num_tables; i++) {
+			if (callback != NULL) {
+				callback(cur_entry);
+			}
+			cur_entry = (tpd_entry*)((char*)cur_entry + cur_entry->tpd_size);
+		}
+	}
+	return num_tables;
 }
