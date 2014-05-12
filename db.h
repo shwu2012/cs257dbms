@@ -29,6 +29,7 @@ prototype for the db.exe program.
 const char kDbFile[] = "dbfile.bin";
 const char kTempDbFile[] = "dbfile.bin.temp";
 const char kDbLogFile[] = "db.log";
+const char kRfStartLogEntry[] = "RF_START";
 
 /* Column descriptor sturcture = 20+4+4+4+4 = 36 bytes */
 typedef struct cd_entry_def {

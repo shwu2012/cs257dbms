@@ -526,7 +526,7 @@ int sem_restore(token_list *t_list) {
     while (cur_entry) {
       write_log(cur_entry->raw_text, cur_entry != log_entry_head);
       if (cur_entry == backup_entry) {
-        write_log("RF_START", true);
+        write_log(kRfStartLogEntry, true);
       }
       cur_entry = cur_entry->next;
     }
@@ -564,7 +564,7 @@ int sem_rollforward(token_list *t_list) {
   log_entry *cur_entry = log_entry_head;
   log_entry *rf_start_entry = NULL;
   while (cur_entry) {
-    if (stricmp("RF_START", cur_entry->text) == 0) {
+    if (stricmp(cur_entry->text, kRfStartLogEntry) == 0) {
       // RF_START log entry is found.
       if (rf_start_entry == NULL) {
         rf_start_entry = cur_entry;
@@ -621,10 +621,27 @@ int sem_rollforward(token_list *t_list) {
       if (cur_entry == last_executed_entry) {
         break;
       }
+    } else {
+      if (last_executed_entry == NULL) {
+        // When it comes here, it means that the timestamp is too early to redo
+        // any log entries after RF_START.
+        break;
+      }
     }
     cur_entry = cur_entry->next;
   }
 
+  // If last_executed_entry is NULL, it means no log entries after RF_START have
+  // been redone, pruning happened so backup is needed.
+  // If last_executed_entry is not NULL, and last_executed_entry is not the last
+  // log entry, pruning happened so backup is needed.
+  if ((last_executed_entry == NULL) ||
+      (last_executed_entry != NULL && last_executed_entry->next != NULL)) {
+    // Backup original log.
+    rc = backup_log_file(log_entry_head);
+  }
+
+  free_log_entries(log_entry_head);
   return rc;
 }
 
@@ -3016,7 +3033,9 @@ int backup_log_file(log_entry *log_entry_head) {
   }
   log_entry *cur_entry = log_entry_head;
   while (cur_entry) {
-    fprintf(f_log_bak, "%s\n", cur_entry->raw_text);
+    if (stricmp(cur_entry->text, kRfStartLogEntry) != 0) {
+      fprintf(f_log_bak, "%s\n", cur_entry->raw_text);
+    }
     cur_entry = cur_entry->next;
   }
   fclose(f_log_bak);
