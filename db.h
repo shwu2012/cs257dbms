@@ -202,7 +202,8 @@ typedef enum return_codes_def {
   DUPLICATE_BACKUP_LOG_ENTRY,            // -289
   MISSING_RF_START_LOG_ENTRY,            // -288
   DUPLICATE_RF_START_LOG_ENTRY,          // -287
-  DB_NOT_IN_ROLLFORWARD_PENDING_STATE    // -286
+  DB_NOT_IN_ROLLFORWARD_PENDING_STATE,   // -286
+  INVALID_TIMESTAMP_FORMAT               // -285
 } return_codes;
 
 /* Table file structures in which we store records of that table */
@@ -341,6 +342,8 @@ void remove_table_file(tpd_entry *table_entry);
 void rename_table_file(tpd_entry *table_entry);
 int update_db_flags(int db_flags);
 int backup_log_file(log_entry *log_entry_head);
+bool is_timestamp_valid(char *text);
+int max_days_of_month(int year, int month);
 
 /* inline functions */
 

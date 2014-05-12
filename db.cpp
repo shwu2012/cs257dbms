@@ -433,6 +433,8 @@ int sem_restore(token_list *t_list) {
   char *img_file_name = cur->tok_string;
   if (!is_file_readable(img_file_name, false)) {
     rc = MISSING_BACKUP_FILE;
+    printf("Error - cannot find the backup image name specified: %s.\n",
+           img_file_name);
     cur->tok_value = INVALID;
     return rc;
   }
@@ -474,7 +476,8 @@ int sem_restore(token_list *t_list) {
         rc = DUPLICATE_BACKUP_LOG_ENTRY;
         printf(
             "Error - transaction log contains duplicate backup image name "
-            "specified.\n");
+            "specified: %s.\n",
+            img_file_name);
         break;
       }
     }
@@ -484,7 +487,8 @@ int sem_restore(token_list *t_list) {
     rc = MISSING_BACKUP_LOG_ENTRY;
     printf(
         "Error - transaction log does not contain the backup image name "
-        "specified.\n");
+        "specified: %s.\n",
+        img_file_name);
   }
   if (rc) {
     free_log_entries(log_entry_head);
@@ -542,12 +546,15 @@ int sem_rollforward(token_list *t_list) {
 
   bool has_to_timestamp = false;
   char timestamp_text[MAX_STRING_LEN + 1];
-  // TODO: Use string as timestamp now, but need to create a new token type for
-  // timestamp.
   if (cur->tok_value == K_TO && cur->next != NULL &&
-      cur->next->tok_value == STRING_LITERAL) {
+      cur->next->tok_value == INT_LITERAL) {
     has_to_timestamp = true;
     strcpy(timestamp_text, cur->next->tok_string);
+    if (!is_timestamp_valid(timestamp_text)) {
+      rc = INVALID_TIMESTAMP_FORMAT;
+      cur->next->tok_value = INVALID;
+      return rc;
+    }
     cur = cur->next->next;
   }
   if (cur->tok_value != EOC) {
@@ -3041,4 +3048,81 @@ int backup_log_file(log_entry *log_entry_head) {
   }
   fclose(f_log_bak);
   return 0;
+}
+
+int max_days_of_month(int year, int month) {
+  int days_in_month[] = {-1, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (year % 4 == 0 && year % 100 != 0) {
+    days_in_month[2] = 29;
+  } else if (year % 400 == 0) {
+    days_in_month[2] = 29;
+  }
+  return days_in_month[month];
+}
+
+bool is_timestamp_valid(char *text) {
+  // A valid timestamp should contains 14 digits, like 20140511093524.
+  int num_digits = 0;
+  char *p = text;
+  while (*p) {
+    if (!isdigit(*p)) {
+      return false;
+    }
+    num_digits++;
+    p++;
+  }
+  if (num_digits != 14) {
+    return false;
+  }
+
+  char buffer[5];
+  // Parse 4-digit year.
+  memcpy(buffer, text, 4);
+  buffer[4] = '\0';
+  int year = atoi(buffer);
+  if (year < 1900 || year > 2999) {
+    return false;
+  }
+
+  // Parse 2-digit month.
+  memcpy(buffer, text + 4, 2);
+  buffer[2] = '\0';
+  int month = atoi(buffer);
+  if (month < 1 || month > 12) {
+    return false;
+  }
+
+  // Parse 2-digit day.
+  memcpy(buffer, text + 6, 2);
+  buffer[2] = '\0';
+  int day = atoi(buffer);
+  if (day < 1 || day > max_days_of_month(year, month)) {
+    return false;
+  }
+
+  // Parse 2-digit 24-hr hour, from 00 to 23.
+  memcpy(buffer, text + 8, 2);
+  buffer[2] = '\0';
+  int hour = atoi(buffer);
+  if (hour < 0 || hour > 23) {
+    return false;
+  }
+
+  // Parse 2-digit minute.
+  memcpy(buffer, text + 10, 2);
+  buffer[2] = '\0';
+  int minute = atoi(buffer);
+  if (minute < 0 || minute > 59) {
+    return false;
+  }
+
+  // Parse 2-digit second.
+  memcpy(buffer, text + 12, 2);
+  buffer[2] = '\0';
+  int second = atoi(buffer);
+  if (second < 0 || second > 59) {
+    return false;
+  }
+
+  return true;
 }
