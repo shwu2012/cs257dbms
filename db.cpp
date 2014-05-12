@@ -1047,9 +1047,9 @@ int initialize_tpd_list(const char *db_filename, tpd_list **pp_tpd_list) {
 
   FILE *fhandle = NULL;
   /* Open for read */
-  if ((fhandle = fopen(kDbFile, "rbc")) == NULL) {
+  if ((fhandle = fopen(db_filename, "rbc")) == NULL) {
     // DB file "dbfile.bin" doesn't exist, so create it.
-    if ((fhandle = fopen(kDbFile, "wbc")) == NULL) {
+    if ((fhandle = fopen(db_filename, "wbc")) == NULL) {
       rc = FILE_OPEN_ERROR;
     } else {
       p_tpd_list = (tpd_list *)calloc(1, sizeof(tpd_list));
@@ -1063,9 +1063,9 @@ int initialize_tpd_list(const char *db_filename, tpd_list **pp_tpd_list) {
       }
     }
   } else {
-    /* There is a valid dbfile.bin file - get file size */
+    /* There is a valid dbfile - get file size */
     int file_size = get_file_size(fhandle);
-    printf("%s size = %d\n", kDbFile, file_size);
+    printf("%s size = %d\n", db_filename, file_size);
     p_tpd_list = (tpd_list *)calloc(1, file_size);
 
     if (!p_tpd_list) {
@@ -2908,7 +2908,7 @@ void free_log_entries(log_entry *p_first_log_entry) {
 int restore_from_backup_file(char *backup_filename, int db_flags) {
   // Reconstruct tpd_list and fetch table names.
   FILE *f_backup = fopen(backup_filename, "rb");
-  FILE *f_tmp_dbfile = fopen(kTempDbFile, "wb");
+  FILE *f_tmp_dbfile = fopen(kTempDbFile, "wbc");
   if (f_backup == NULL || f_tmp_dbfile == NULL) {
     if (f_backup) {
       fclose(f_backup);
@@ -2932,6 +2932,7 @@ int restore_from_backup_file(char *backup_filename, int db_flags) {
     fread(&byte, sizeof(byte), 1, f_backup);
     fwrite(&byte, sizeof(byte), 1, f_tmp_dbfile);
   }
+  fflush(f_tmp_dbfile);
   fclose(f_tmp_dbfile);
   tpd_list *p_tpd_list = NULL;
   initialize_tpd_list(kTempDbFile, &p_tpd_list);
@@ -2945,11 +2946,11 @@ int restore_from_backup_file(char *backup_filename, int db_flags) {
     // Writing table file as a .tab.temp file.
     char table_filename[MAX_IDENT_LEN + 10];
     sprintf(table_filename, "%s.tab.temp", cur_entry->table_name);
-    FILE *f_tmp_tab_file = fopen(table_filename, "wc");
+    FILE *f_tmp_tab_file = fopen(table_filename, "wbc");
     if (f_tmp_tab_file == NULL) {
       return FILE_OPEN_ERROR;
     }
-    for (int i = 0; i < table_file_size; i++) {
+    for (int j = 0; j < table_file_size; j++) {
       fread(&byte, sizeof(byte), 1, f_backup);
       fwrite(&byte, sizeof(byte), 1, f_tmp_tab_file);
     }
