@@ -508,6 +508,9 @@ int sem_restore(token_list *t_list) {
       }
       cur_entry = cur_entry->next;
     }
+
+    // Backup original log.
+    rc = backup_log_file(log_entry_head);
   } else {
     // "WITHOUT RF" is not specified.
 
@@ -2995,5 +2998,27 @@ int update_db_flags(int db_flags) {
   fwrite(&tmp_tpd_list, sizeof(tmp_tpd_list), 1, fhandle);
   fclose(fhandle);
   g_tpd_list->db_flags = db_flags;
+  return 0;
+}
+
+int backup_log_file(log_entry *log_entry_head) {
+  char log_bak_filename[10];
+  for (int i = 1; i <= MAX_NUM_LOG_BACKUP_FILES; i++) {
+    sprintf(log_bak_filename, "%s%d", kDbLogFile, i);
+    if (!is_file_readable(log_bak_filename, true)) {
+      break;
+    }
+  }
+  // We found one available log backup filename.
+  FILE *f_log_bak = fopen(log_bak_filename, "w");
+  if (f_log_bak == NULL) {
+    return FILE_OPEN_ERROR;
+  }
+  log_entry *cur_entry = log_entry_head;
+  while (cur_entry) {
+    fprintf(f_log_bak, "%s\n", cur_entry->raw_text);
+    cur_entry = cur_entry->next;
+  }
+  fclose(f_log_bak);
   return 0;
 }

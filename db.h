@@ -23,6 +23,7 @@ prototype for the db.exe program.
 #define ROLLFORWARD_PENDING 1
 #define LOG_ENTRY_TIMESTAMP_LEN 14
 #define MAX_LOG_ENTRY_TEXT_LEN 1000
+#define MAX_NUM_LOG_BACKUP_FILES 999
 
 /* Constants */
 const char kDbFile[] = "dbfile.bin";
@@ -338,6 +339,7 @@ void print_table_name(tpd_entry *table_entry);
 void remove_table_file(tpd_entry *table_entry);
 void rename_table_file(tpd_entry *table_entry);
 int update_db_flags(int db_flags);
+int backup_log_file(log_entry *log_entry_head);
 
 /* inline functions */
 
